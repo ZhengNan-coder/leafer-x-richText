@@ -21,7 +21,8 @@
     "build": "tsc && vite build",
     "build:lib": "vite build --config vite.lib.config.ts",
     "preview": "vite preview",
-    "prepublishOnly": "npm run build:lib"
+    "prepublishOnly": "npm run build:lib",
+    "publish:public": "npm run build:lib && npm publish --registry https://registry.npmjs.org/ --access public"
   },
   "keywords": [
     "leafer",
