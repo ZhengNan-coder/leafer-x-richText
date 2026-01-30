@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leafer IText Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      overflow: hidden;
+    }
+    #app {
+      display: flex;
+      height: 100vh;
+    }
+    .canvas-container {
+      flex: 1;
+      position: relative;
+      background: #fff;
+    }
+    .panel {
+      width: 300px;
+      background: #fff;
+      border-left: 1px solid #e0e0e0;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .panel h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    .control-group {
+      margin-bottom: 20px;
+    }
+    .control-group label {
+      display: block;
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .control-group input,
+    .control-group select,
+    .control-group button {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .control-group input[type="color"] {
+      height: 40px;
+      cursor: pointer;
+    }
+    .control-group button {
+      background: #007aff;
+      color: white;
+      border: none;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .control-group button:hover {
+      background: #0066e0;
+    }
+    .control-group button:active {
+      background: #0051c2;
+    }
+    .style-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    .style-btn {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .style-btn.active {
+      background: #007aff;
+      color: white;
+      border-color: #007aff;
+    }
+    .info {
+      background: #f8f9fa;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #666;
+      line-height: 1.6;
+    }
+    .divider {
+      height: 1px;
+      background: #e0e0e0;
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="canvas-container">
+      <div id="canvas"></div>
+    </div>
+    <div class="panel">
+      <h2>IText 属性面板</h2>
+      
+      <div class="info">
+        <strong>使用说明：</strong><br>
+        • 点击文本进入编辑模式<br>
+        • 选中文字后可单独设置样式<br>
+        • 支持快捷键：Ctrl+A全选，Ctrl+C/V/X<br>
+        • ESC退出编辑模式
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="control-group">
+        <label>字体大小</label>
+        <input type="number" id="fontSize" value="24" min="12" max="100">
+      </div>
+
+      <div class="control-group">
+        <label>字体</label>
+        <select id="fontFamily">
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Verdana">Verdana</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>文字颜色</label>
+        <input type="color" id="fill" value="#000000">
+      </div>
+
+      <div class="control-group">
+        <label>样式</label>
+        <div class="style-buttons">
+          <button class="style-btn" id="btnBold">B</button>
+          <button class="style-btn" id="btnItalic" style="font-style: italic;">I</button>
+          <button class="style-btn" id="btnUnderline" style="text-decoration: underline;">U</button>
+          <button class="style-btn" id="btnStrike" style="text-decoration: line-through;">S</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="control-group">
+        <button id="btnSelectAll">全选文本</button>
+        <button id="btnClearStyles">清除样式</button>
+        <button id="btnAddText">添加新文本</button>
+        <button id="btnExportJSON">导出 JSON</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="info" id="selectionInfo">
+        选区: 无选中
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

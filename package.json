@@ -1,0 +1,30 @@
+{
+  "name": "leafer-x-richText",
+  "version": "1.0.0",
+  "description": "Leafer plugin: rich text element with per-character styling (Figma-style, IText-like)",
+  "type": "module",
+  "main": "src/richtext/index.ts",
+  "types": "src/richtext/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/richtext/index.ts",
+      "types": "./src/richtext/index.ts"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@leafer-in/editor": "^2.0.0",
+    "@leafer-in/text-editor": "^2.0.0",
+    "import": "^0.0.6",
+    "leafer-ui": "2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
+  }
+}
