@@ -205,6 +205,20 @@ leafer-x-richText/
 └── README.md
 ```
 
+## 发布到 npm
+
+1. 登录公共 npm（若未登录）：
+   ```bash
+   npm login
+   # 输入 npmjs.com 账号、密码、邮箱
+   ```
+2. 在项目根目录执行：
+   ```bash
+   npm run build:lib   # 可选，prepublishOnly 会自动执行
+   npm publish
+   ```
+   `package.json` 中已配置 `publishConfig.registry` 为 `https://registry.npmjs.org/`，会发布到公共 npm。
+
 ## License
 
 MIT
