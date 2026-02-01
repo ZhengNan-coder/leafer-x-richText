@@ -176,7 +176,11 @@ export class RichText extends UI {
   public debugMode = false
   
   // 保存原始 draggable 状态（进入编辑时临时禁用）
-  private _savedDraggable: boolean | undefined
+  private _savedDraggable: any
+  
+  // 翻转标记（width/height 为负时）
+  private _isFlippedX = false
+  private _isFlippedY = false
   
   constructor(data?: IRichTextInputData) {
     super(data)
@@ -223,15 +227,19 @@ export class RichText extends UI {
     const box = this.__layout.boxBounds
     const computed = this._getTextBounds()
     
-    // 宽度：autoWidth 时使用计算值，否则优先使用设置值
-    let width = this.autoWidth || !this.width || this.width <= 0
-      ? computed.width
-      : this.width
+    // ✅ 支持负宽高：保存翻转标记，使用绝对值计算
+    this._isFlippedX = !this.autoWidth && this.width < 0
+    this._isFlippedY = !this.autoHeight && this.height < 0
     
-    // 高度：autoHeight 时使用计算值，否则优先使用设置值
-    let height = this.autoHeight || !this.height || this.height <= 0
+    // 宽度：autoWidth 时使用计算值，否则使用绝对值
+    let width = this.autoWidth || !this.width || this.width === 0
+      ? computed.width
+      : Math.abs(this.width)  // 使用绝对值
+    
+    // 高度：autoHeight 时使用计算值，否则使用绝对值
+    let height = this.autoHeight || !this.height || this.height === 0
       ? computed.height
-      : this.height
+      : Math.abs(this.height)  // 使用绝对值
     
     // ✅ 关键：自动宽高模式下，实时更新 width/height 属性值
     // 这样切换为固定宽高时，值不会丢失
@@ -268,6 +276,23 @@ export class RichText extends UI {
     const ctx = canvas.context as CanvasRenderingContext2D
     
     ctx.save()
+    
+    // ✅ Figma 标准：支持负宽高翻转
+    if (this._isFlippedX || this._isFlippedY) {
+      const { width, height } = this.__layout.boxBounds
+      
+      if (this._isFlippedX) {
+        // 水平翻转：scaleX(-1) + translateX
+        ctx.scale(-1, 1)
+        ctx.translate(-width, 0)
+      }
+      
+      if (this._isFlippedY) {
+        // 垂直翻转：scaleY(-1) + translateY
+        ctx.scale(1, -1)
+        ctx.translate(0, -height)
+      }
+    }
     
     // 1. 绘制选区背景
     if (this.isEditing && this.selectionStart !== this.selectionEnd) {
@@ -376,7 +401,15 @@ export class RichText extends UI {
     const paragraphs = this._splitLinesByNewline() // 先按 \n 分段
     
     const padding = this._parsePadding(this.padding)
-    const maxWidth = this.width - padding.left - padding.right
+    
+    // ✅ 支持负宽度：使用绝对值计算换行宽度
+    const absWidth = Math.abs(this.width)
+    const maxWidth = absWidth - padding.left - padding.right
+    
+    // ✅ 安全检查：宽度太小时退化为按 \n 分行
+    if (maxWidth <= 20) {
+      return this._splitLinesByNewline()
+    }
     
     // 临时保存当前的线性字符索引（用于获取字符级样式）
     let linearCharIndex = 0
@@ -640,7 +673,8 @@ export class RichText extends UI {
     
     if (!this._lineMetrics.length) {
       const baseHeight = this.fontSize * (typeof this.lineHeight === 'number' ? this.lineHeight : RICHTEXT_DEFAULTS.lineHeight)
-      const baseWidth = this.autoWidth ? 100 : (this.width || 100)
+      // ✅ 使用绝对值（支持负宽度）
+      const baseWidth = this.autoWidth ? 100 : Math.abs(this.width || 100)
       return { 
         width: baseWidth + padding.left + padding.right, 
         height: baseHeight + padding.top + padding.bottom 
@@ -658,10 +692,10 @@ export class RichText extends UI {
       0
     )
     
-    // 宽度：autoWidth 时使用内容宽度，否则取 max(内容宽度, 设置宽度)
+    // ✅ 宽度：使用绝对值（支持负宽度）
     const finalWidth = this.autoWidth 
       ? contentWidth 
-      : Math.max(contentWidth, this.width || 0)
+      : Math.max(contentWidth, Math.abs(this.width || 0))
     
     const totalHeight = this._lineMetrics.reduce((sum, line) => sum + line.height, 0)
     
@@ -749,10 +783,26 @@ export class RichText extends UI {
   private _pointerToIndex(x: number, y: number): number {
     if (!this._lineMetrics.length) return 0
     
-    // 获取 padding 和调整坐标
+    // ✅ 翻转坐标变换（Figma 标准）
+    let adjustedX = x
+    let adjustedY = y
+    
+    if (this._isFlippedX) {
+      // 水平翻转：x 坐标镜像
+      const { width } = this.__layout.boxBounds
+      adjustedX = width - x
+    }
+    
+    if (this._isFlippedY) {
+      // 垂直翻转：y 坐标镜像
+      const { height } = this.__layout.boxBounds
+      adjustedY = height - y
+    }
+    
+    // 获取 padding
     const padding = this._parsePadding(this.padding)
-    const adjustedX = x - padding.left
-    const adjustedY = y - padding.top
+    adjustedX -= padding.left
+    adjustedY -= padding.top
     
     // 找到对应的行
     let lineIndex = 0
@@ -793,9 +843,9 @@ export class RichText extends UI {
     // 获取 padding（支持数组）
     const padding = this._parsePadding(this.padding)
     
-    // 检查是否需要处理溢出
+    // 检查是否需要处理溢出（使用绝对值）
     const shouldClip = this.textOverflow === 'hide' || (typeof this.textOverflow === 'string' && this.textOverflow !== 'show')
-    const hasFixedSize = (this.width && this.width > 0 && !this.autoWidth) || (this.height && this.height > 0 && !this.autoHeight)
+    const hasFixedSize = (this.width && Math.abs(this.width) > 0 && !this.autoWidth) || (this.height && Math.abs(this.height) > 0 && !this.autoHeight)
     
     if (shouldClip && hasFixedSize) {
       ctx.save()
@@ -1050,11 +1100,11 @@ export class RichText extends UI {
     const lastLetterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
     const lineWidth = lastChar.x + lastChar.width + lastLetterSpacing
     
-    // 容器宽度（考虑 padding）
+    // 容器宽度（考虑 padding，使用绝对值）
     const padding = this._parsePadding(this.padding)
     const containerWidth = this.autoWidth 
       ? lineWidth 
-      : (this.width || lineWidth) - padding.left - padding.right
+      : (Math.abs(this.width) || lineWidth) - padding.left - padding.right
     
     const gap = containerWidth - lineWidth
     
@@ -1332,8 +1382,8 @@ export class RichText extends UI {
     
     // ✅ 关键：进入编辑时禁用元素拖拽，避免键盘事件移动元素
     // 保存原始 draggable 状态
-    this._savedDraggable = this.draggable
-    this.draggable = false
+    this._savedDraggable = (this as any).draggable
+    ;(this as any).draggable = false
     
     // 设置光标位置（优先使用参数，其次使用待定位置）
     const targetPosition = cursorPosition !== undefined 
@@ -1374,7 +1424,7 @@ export class RichText extends UI {
     
     // ✅ 恢复原始 draggable 状态
     if (this._savedDraggable !== undefined) {
-      this.draggable = this._savedDraggable
+      ;(this as any).draggable = this._savedDraggable
       this._savedDraggable = undefined
     }
     this._destroyHiddenTextarea()

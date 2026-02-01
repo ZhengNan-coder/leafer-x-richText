@@ -1,6 +1,6 @@
 // 主入口 - RichText Demo
 import { App } from 'leafer-ui'
-import { EditorEvent, InnerEditorEvent, EditorScaleEvent } from '@leafer-in/editor'
+import { EditorEvent, InnerEditorEvent } from '@leafer-in/editor'
 import { RichText } from './richtext'
 import type { ICharStyle } from './richtext'
 // RichTextEditor 会在 import richtext 时自动注册
@@ -55,32 +55,6 @@ currentRichText = richtext
 // 获取编辑器实例
 const editor = app.editor
 
-// 获取面板元素（必须在绑定事件之前声明）
-const fontSizeInput = document.getElementById('fontSize') as HTMLInputElement
-const fontFamilySelect = document.getElementById('fontFamily') as HTMLSelectElement
-const fillInput = document.getElementById('fill') as HTMLInputElement
-const letterSpacingInput = document.getElementById('letterSpacing') as HTMLInputElement
-const lineHeightInput = document.getElementById('lineHeight') as HTMLInputElement
-const textAlignSelect = document.getElementById('textAlign') as HTMLSelectElement
-const textCaseSelect = document.getElementById('textCase') as HTMLSelectElement
-const paddingInput = document.getElementById('padding') as HTMLInputElement
-const autoWidthCheckbox = document.getElementById('autoWidth') as HTMLInputElement
-const autoHeightCheckbox = document.getElementById('autoHeight') as HTMLInputElement
-const fixedWidthInput = document.getElementById('fixedWidth') as HTMLInputElement
-const fixedHeightInput = document.getElementById('fixedHeight') as HTMLInputElement
-const textWrapSelect = document.getElementById('textWrap') as HTMLSelectElement
-const textOverflowSelect = document.getElementById('textOverflow') as HTMLSelectElement
-const btnBold = document.getElementById('btnBold')!
-const btnItalic = document.getElementById('btnItalic')!
-const btnUnderline = document.getElementById('btnUnderline')!
-const btnStrike = document.getElementById('btnStrike')!
-const btnSelectAll = document.getElementById('btnSelectAll')!
-const btnClearStyles = document.getElementById('btnClearStyles')!
-const btnAddText = document.getElementById('btnAddText')!
-const btnExportJSON = document.getElementById('btnExportJSON')!
-const debugModeCheckbox = document.getElementById('debugMode') as HTMLInputElement
-const selectionInfo = document.getElementById('selectionInfo')!
-
 // 通用：选中变化或进入内部编辑时，同步“当前 RichText”
 if (editor) {
   editor.on(EditorEvent.SELECT as any, () => {
@@ -103,58 +77,6 @@ if (editor) {
     const target = e?.editTarget
     if (target?.__tag === 'RichText') {
       setCurrentRichText(target as RichText)
-    }
-  })
-  
-  // ✅ 监听缩放事件：拖动边框调整尺寸时，自动切换为固定尺寸模式
-  editor.on(EditorScaleEvent.SCALE as any, (e: any) => {
-    const list = editor.list
-    if (!list?.length) return
-    
-    const target = list[0]
-    if (target.__tag === 'RichText') {
-      const richtext = target as RichText
-      
-      // 检查是否是拖动手柄（而非代码设置或键盘缩放）
-      if (e.drag) {
-        console.log('📏 检测到拖动调整尺寸，自动切换为固定尺寸模式')
-        console.log('  scaleX:', e.scaleX, 'scaleY:', e.scaleY)
-        
-        // 延迟处理，等待 Leafer 完成缩放和重新计算 bounds
-        setTimeout(() => {
-          // 获取缩放后的实际尺寸
-          const bounds = richtext.__layout.boxBounds
-          const newWidth = bounds.width
-          const newHeight = bounds.height
-          
-          console.log('  缩放后尺寸:', newWidth.toFixed(1), 'x', newHeight.toFixed(1))
-          
-          // 自动切换为固定尺寸（只切换被拖动的方向）
-          let switched = false
-          
-          // 检测是否横向缩放（宽度变化）
-          if (Math.abs(e.scaleX - 1) > 0.01 && richtext.autoWidth) {
-            richtext.autoWidth = false
-            richtext.width = newWidth
-            console.log(`  ✅ autoWidth: true → false, width: ${newWidth.toFixed(0)}`)
-            switched = true
-          }
-          
-          // 检测是否纵向缩放（高度变化）
-          if (Math.abs(e.scaleY - 1) > 0.01 && richtext.autoHeight) {
-            richtext.autoHeight = false
-            richtext.height = newHeight
-            console.log(`  ✅ autoHeight: true → false, height: ${newHeight.toFixed(0)}`)
-            switched = true
-          }
-          
-          if (switched) {
-            // 更新面板显示
-            updatePanelFromRichText(richtext)
-            richtext.forceRender()
-          }
-        }, 10)
-      }
     }
   })
 }
@@ -203,6 +125,32 @@ setTimeout(() => {
   richtext.selectionStart = richtext.selectionEnd = 0
   richtext.exitEditing()
 }, 2000)
+
+// 获取面板元素
+const fontSizeInput = document.getElementById('fontSize') as HTMLInputElement
+const fontFamilySelect = document.getElementById('fontFamily') as HTMLSelectElement
+const fillInput = document.getElementById('fill') as HTMLInputElement
+const letterSpacingInput = document.getElementById('letterSpacing') as HTMLInputElement
+const lineHeightInput = document.getElementById('lineHeight') as HTMLInputElement
+const textAlignSelect = document.getElementById('textAlign') as HTMLSelectElement
+const textCaseSelect = document.getElementById('textCase') as HTMLSelectElement
+const paddingInput = document.getElementById('padding') as HTMLInputElement
+const autoWidthCheckbox = document.getElementById('autoWidth') as HTMLInputElement
+const autoHeightCheckbox = document.getElementById('autoHeight') as HTMLInputElement
+const fixedWidthInput = document.getElementById('fixedWidth') as HTMLInputElement
+const fixedHeightInput = document.getElementById('fixedHeight') as HTMLInputElement
+const textWrapSelect = document.getElementById('textWrap') as HTMLSelectElement
+const textOverflowSelect = document.getElementById('textOverflow') as HTMLSelectElement
+const btnBold = document.getElementById('btnBold')!
+const btnItalic = document.getElementById('btnItalic')!
+const btnUnderline = document.getElementById('btnUnderline')!
+const btnStrike = document.getElementById('btnStrike')!
+const btnSelectAll = document.getElementById('btnSelectAll')!
+const btnClearStyles = document.getElementById('btnClearStyles')!
+const btnAddText = document.getElementById('btnAddText')!
+const btnExportJSON = document.getElementById('btnExportJSON')!
+const debugModeCheckbox = document.getElementById('debugMode') as HTMLInputElement
+const selectionInfo = document.getElementById('selectionInfo')!
 
 // 根据当前选中的 RichText 更新面板控件
 function updatePanelFromRichText(rt: RichText | null): void {
