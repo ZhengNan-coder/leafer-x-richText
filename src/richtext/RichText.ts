@@ -233,21 +233,22 @@ export class RichText extends UI {
     const newFlippedX = !this.autoWidth && this.width < 0
     const newFlippedY = !this.autoHeight && this.height < 0
     
+    // 检测翻转状态改变
     const flipChanged = wasFlippedX !== newFlippedX || wasFlippedY !== newFlippedY
     
     // 调试：输出翻转状态变化
     if (this.debugMode && flipChanged) {
-      console.log(`[RichText] 翻转状态变化: FlipX ${wasFlippedX} → ${newFlippedX}, FlipY ${wasFlippedY} → ${newFlippedY}, width=${this.width}, height=${this.height}`)
+      console.log(`[RichText] 翻转状态变化: FlipX ${wasFlippedX} → ${newFlippedX}, FlipY ${wasFlippedY} → ${newFlippedY}, width=${this.width}`)
     }
     
     this._isFlippedX = newFlippedX
     this._isFlippedY = newFlippedY
     
-    // ✅ 翻转状态改变时，强制全局重绘（清除残影）
-    if (flipChanged && this.leafer) {
-      // 通知 Leafer 整个元素需要重绘（包括翻转前的旧位置）
-      this.__layout.renderChanged = true
-      this.forceUpdate()
+    // ✅ 关键：翻转状态改变时，标记整个元素需要重新渲染
+    // 这样 Leafer 会清除旧位置的渲染
+    if (flipChanged) {
+      // 强制整个元素重新渲染（清除残影）
+      this.__layout.renderChanged || this.__layout.renderChange()
     }
     
     // 宽度：autoWidth 时使用计算值，否则使用绝对值
@@ -278,32 +279,25 @@ export class RichText extends UI {
   }
   
   /**
-   * 更新渲染边界（扩大以支持翻转）
-   * Leafer 会调用此方法来决定脏矩形范围
+   * 更新渲染边界（扩大脏矩形，解决翻转残影）
+   * Leafer 用这个方法决定重绘区域
    */
   __updateRenderBounds(): void {
-    super.__updateRenderBounds?.()
+    const { renderBounds } = this.__layout
+    const { boxBounds } = this.__layout
     
-    const box = this.__layout.boxBounds
-    const render = this.__layout.renderBounds
+    // ✅ 关键：扩大渲染边界以包含所有可能的内容
+    // 特别是翻转时，文本可能渲染在 boxBounds 之外
+    const margin = 50  // 额外边距（考虑 padding、溢出等）
     
-    // ✅ 关键修复：翻转时扩大渲染边界，确保旧内容被清除
-    if (this._isFlippedX || this._isFlippedY) {
-      // 翻转时，内容可能渲染在负坐标区域
-      // 扩大 renderBounds 以包含翻转前后的所有位置
-      const expandX = this._isFlippedX ? box.width : 0
-      const expandY = this._isFlippedY ? box.height : 0
-      
-      render.x = box.x - expandX
-      render.y = box.y - expandY
-      render.width = box.width + expandX
-      render.height = box.height + expandY
-    } else {
-      // 正常情况：renderBounds = boxBounds
-      render.x = box.x
-      render.y = box.y
-      render.width = box.width
-      render.height = box.height
+    renderBounds.x = boxBounds.x - margin
+    renderBounds.y = boxBounds.y - margin
+    renderBounds.width = boxBounds.width + margin * 2
+    renderBounds.height = boxBounds.height + margin * 2
+    
+    // 调试：输出渲染边界
+    if (this.debugMode) {
+      console.log(`[RichText] renderBounds: x=${renderBounds.x}, y=${renderBounds.y}, w=${renderBounds.width}, h=${renderBounds.height}`)
     }
   }
   
@@ -314,7 +308,6 @@ export class RichText extends UI {
     const { context } = hitCanvas
     const { x, y, width, height } = this.__layout.boxBounds
     
-    // boxBounds 已考虑翻转（x/y 可能为负），直接使用
     context.beginPath()
     context.rect(x, y, width, height)
   }
