@@ -68,7 +68,9 @@ export class RichTextEditor extends InnerEditor {
       editor.app.on_('key.down' as any, (e: any) => {
         if (richtext.isEditing) {
           // 在编辑状态下，阻止键盘事件传递到 Editor
-          e.stopPropagation()
+          // Leafer API: 使用 stop() 代替 stopPropagation()
+          if (e.stop) e.stop()
+          if (e.stopDefault) e.stopDefault()
         }
       }, { capture: true })  // 使用捕获阶段拦截
     ]

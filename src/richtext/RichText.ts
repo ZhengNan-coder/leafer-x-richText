@@ -1227,13 +1227,14 @@ export class RichText extends UI {
     this.on('key.down', (e: any) => {
       if (this.isEditing) {
         // 阻止事件冒泡到 Editor（防止方向键移动元素）
-        e.stopPropagation()
+        // Leafer API: 使用 stop() 代替 stopPropagation()
+        if (e.stop) e.stop()
       }
     })
     
     this.on('key.up', (e: any) => {
       if (this.isEditing) {
-        e.stopPropagation()
+        if (e.stop) e.stop()
       }
     })
   }
