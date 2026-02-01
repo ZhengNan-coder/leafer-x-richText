@@ -1,15 +1,38 @@
 // RichText 数据处理类
 import { UIData } from '@leafer-ui/core'
-import type { IRichTextData } from './types'
+import type { IRichTextData, IUnitData } from './types'
 
 export class RichTextData extends UIData implements IRichTextData {
-  // 数据属性会通过装饰器自动生成
-  // 这里只需要定义空类，或者添加特殊的 set 逻辑
+  // 存储原始值（支持 IUnitData）
+  _letterSpacing: number | IUnitData | undefined
+  _lineHeight: number | IUnitData | undefined
   
-  // 如果需要特殊处理，可以添加 setXxx 方法
-  // 例如：
-  // setText(value: string): void {
-  //   this._text = value
-  //   // 触发重新布局
-  // }
+  /**
+   * letterSpacing setter - 支持 number 或 IUnitData
+   * 注意：这里不做转换，保留原始值，在渲染时转换为像素
+   */
+  setLetterSpacing(value: number | IUnitData): void {
+    this._letterSpacing = value
+  }
+  
+  /**
+   * letterSpacing getter
+   */
+  get letterSpacing(): number | IUnitData | undefined {
+    return this._letterSpacing
+  }
+  
+  /**
+   * lineHeight setter - 支持 number 或 IUnitData
+   */
+  setLineHeight(value: number | IUnitData): void {
+    this._lineHeight = value
+  }
+  
+  /**
+   * lineHeight getter
+   */
+  get lineHeight(): number | IUnitData | undefined {
+    return this._lineHeight
+  }
 }

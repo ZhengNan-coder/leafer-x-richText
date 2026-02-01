@@ -154,6 +154,83 @@
         </div>
       </div>
 
+      <div class="control-group">
+        <label>字间距</label>
+        <input type="number" id="letterSpacing" value="0" min="-5" max="20" step="0.5">
+      </div>
+
+      <div class="control-group">
+        <label>行高</label>
+        <input type="number" id="lineHeight" value="1.5" min="0.5" max="3" step="0.1">
+      </div>
+
+      <div class="control-group">
+        <label>文本对齐</label>
+        <select id="textAlign">
+          <option value="left">左对齐</option>
+          <option value="center">居中</option>
+          <option value="right">右对齐</option>
+          <option value="justify">两端对齐</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>文本大小写</label>
+        <select id="textCase">
+          <option value="none">无</option>
+          <option value="upper">全部大写</option>
+          <option value="lower">全部小写</option>
+          <option value="title">首字母大写</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>内边距</label>
+        <input type="number" id="padding" value="0" min="0" max="50">
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="control-group">
+        <label>
+          <input type="checkbox" id="autoWidth" checked> 自动宽度
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label>
+          <input type="checkbox" id="autoHeight" checked> 自动高度
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label>固定宽度</label>
+        <input type="number" id="fixedWidth" value="400" min="100" max="800" disabled>
+      </div>
+
+      <div class="control-group">
+        <label>固定高度</label>
+        <input type="number" id="fixedHeight" value="200" min="50" max="500" disabled>
+      </div>
+
+      <div class="control-group">
+        <label>换行规则</label>
+        <select id="textWrap">
+          <option value="normal">自动换行</option>
+          <option value="none">不换行</option>
+          <option value="break">强制换行</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>溢出处理</label>
+        <select id="textOverflow">
+          <option value="show">显示</option>
+          <option value="hide">隐藏</option>
+          <option value="...">省略号</option>
+        </select>
+      </div>
+
       <div class="divider"></div>
 
       <div class="control-group">

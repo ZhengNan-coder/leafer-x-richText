@@ -1,18 +1,57 @@
 // RichText 类型定义
-import type { IUIInputData, IUIData, IFontWeight } from '@leafer-ui/interface'
+import type { 
+  IUIInputData, 
+  IUIData, 
+  IFontWeight,
+  ITextCase,
+  ITextDecoration,
+  ITextDecorationType,
+  ITextDecorationData,
+  IUnitData,
+  ITextWrap,
+  IOverflow,
+  ITextAlign,
+  IVerticalAlign
+} from '@leafer-ui/interface'
+
+// 重新导出类型供外部使用
+export type {
+  ITextCase,
+  ITextDecoration,
+  ITextDecorationType,
+  ITextDecorationData,
+  IUnitData,
+  ITextWrap,
+  IOverflow,
+  ITextAlign,
+  IVerticalAlign
+}
 
 /**
- * 字符样式
+ * 字符样式（支持字符级设置）
+ * 注意：lineHeight、textWrap、textOverflow 等段落属性不在此列
  */
 export interface ICharStyle {
+  // 基础样式
   fill?: string
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
   italic?: boolean
+  
+  // 文本格式
+  textCase?: ITextCase
+  textDecoration?: ITextDecoration
+  
+  // 间距（仅字间距，行高是段落属性）
+  letterSpacing?: number | IUnitData
+  
+  // 背景
+  textBackgroundColor?: string
+  
+  // 兼容旧属性（内部转换为 textDecoration）
   underline?: boolean
   linethrough?: boolean
-  textBackgroundColor?: string
 }
 
 /**
@@ -39,13 +78,42 @@ export interface ILineMetrics {
  */
 export interface IRichTextInputData extends IUIInputData {
   text?: string
+  
+  // 基础字符样式
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
   fill?: string
   italic?: boolean
-  editable?: boolean
+  
+  // 文本格式
+  textCase?: ITextCase
+  textDecoration?: ITextDecoration
+  
+  // 间距
+  letterSpacing?: number | IUnitData
+  lineHeight?: number | IUnitData
+  
+  // 换行与溢出
+  textWrap?: ITextWrap
+  textOverflow?: IOverflow | string
+  
+  // 段落属性
+  paraIndent?: number
+  paraSpacing?: number
+  textAlign?: ITextAlign
+  verticalAlign?: IVerticalAlign
+  autoSizeAlign?: boolean
+  padding?: number | number[]
+  
+  // 尺寸控制
   width?: number
+  height?: number
+  autoWidth?: boolean  // true: 宽度自动适应内容（不换行）
+  autoHeight?: boolean // true: 高度自动适应内容
+  
+  // 编辑相关
+  editable?: boolean
   
   // 字符级样式（推荐格式：range-based，简洁）
   styleRanges?: IStyleRange[]
@@ -64,17 +132,47 @@ export interface IRichTextInputData extends IUIInputData {
 }
 
 /**
- * RichText 数据
+ * RichText 数据（计算数据）
+ * 注意：letterSpacing 和 lineHeight 保持 number | IUnitData 以支持灵活输入
  */
 export interface IRichTextData extends IUIData {
   text?: string
+  
+  // 基础字符样式
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
   fill?: string
   italic?: boolean
-  editable?: boolean
+  
+  // 文本格式
+  textCase?: ITextCase
+  textDecoration?: ITextDecoration
+  
+  // 间距（支持数字或单位对象）
+  letterSpacing?: number | IUnitData
+  lineHeight?: number | IUnitData
+  
+  // 换行与溢出
+  textWrap?: ITextWrap
+  textOverflow?: IOverflow | string
+  
+  // 段落属性
+  paraIndent?: number
+  paraSpacing?: number
+  textAlign?: ITextAlign
+  verticalAlign?: IVerticalAlign
+  autoSizeAlign?: boolean
+  padding?: number | number[]
+  
+  // 尺寸控制
   width?: number
+  height?: number
+  autoWidth?: boolean
+  autoHeight?: boolean
+  
+  // 编辑相关
+  editable?: boolean
   
   // 字符级样式
   styles?: any
@@ -95,14 +193,27 @@ export type StyleMap = Map<number, Map<number, ICharStyle>>
 export interface IStyleRange {
   start: number
   end: number
+  
+  // 基础样式
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
   fill?: string
   italic?: boolean
+  
+  // 文本格式
+  textCase?: ITextCase
+  textDecoration?: ITextDecoration
+  
+  // 间距
+  letterSpacing?: number | IUnitData
+  
+  // 背景
+  textBackgroundColor?: string
+  
+  // 兼容旧属性
   underline?: boolean
   linethrough?: boolean
-  textBackgroundColor?: string
 }
 
 /**

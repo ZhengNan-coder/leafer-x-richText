@@ -1,8 +1,26 @@
 // RichText 主类 - 继承 UI，完全自定义
-import { UI, registerUI, dataProcessor, boundsType, surfaceType } from '@leafer-ui/core'
-import type { ILeaferCanvas } from '@leafer-ui/interface'
+import { UI, registerUI, dataProcessor, boundsType, surfaceType, dataType } from '@leafer-ui/core'
+import type { 
+  ILeaferCanvas,
+  ITextCase,
+  ITextDecoration,
+  ITextWrap,
+  IOverflow,
+  ITextAlign,
+  IVerticalAlign,
+  IUnitData
+} from '@leafer-ui/interface'
 import { RichTextData } from './RichTextData'
-import type { IRichTextInputData, IRichTextData, ICharStyle, ICharMetrics, ILineMetrics, StyleMap, ICursorLocation, IStyleRange } from './types'
+import type { 
+  IRichTextInputData, 
+  IRichTextData, 
+  ICharStyle, 
+  ICharMetrics, 
+  ILineMetrics, 
+  StyleMap, 
+  ICursorLocation, 
+  IStyleRange
+} from './types'
 import { RICHTEXT_DEFAULTS, RE_WORD_BOUNDARY } from './constants'
 import { graphemeSplit, buildFontString, measureTextWidth } from './utils'
 import { EditingManager } from './EditingManager'
@@ -12,12 +30,15 @@ export class RichText extends UI {
   public get __tag() { return 'RichText' }
   
   @dataProcessor(RichTextData)
-  declare public __: IRichTextData
+  declare public __: any  // 使用 any 避免类型冲突（letterSpacing/lineHeight 支持 IUnitData）
   
-  // 数据属性
+  // ============ 数据属性（响应式）============
+  
+  // 文本内容
   @boundsType('')
   declare public text: string
   
+  // 基础字符样式
   @boundsType(RICHTEXT_DEFAULTS.fontSize)
   declare public fontSize: number
   
@@ -33,11 +54,62 @@ export class RichText extends UI {
   @boundsType(RICHTEXT_DEFAULTS.italic)
   declare public italic: boolean
   
-  @boundsType(true)
-  declare public editable: boolean
+  // 文本格式
+  @surfaceType(RICHTEXT_DEFAULTS.textCase)
+  declare public textCase: ITextCase
   
+  @surfaceType(RICHTEXT_DEFAULTS.textDecoration)
+  declare public textDecoration: ITextDecoration
+  
+  // 间距
+  @boundsType(RICHTEXT_DEFAULTS.letterSpacing)
+  declare public letterSpacing: number | IUnitData
+  
+  @boundsType(RICHTEXT_DEFAULTS.lineHeight)
+  declare public lineHeight: number | IUnitData
+  
+  // 换行与溢出
+  @boundsType(RICHTEXT_DEFAULTS.textWrap)
+  declare public textWrap: ITextWrap
+  
+  @boundsType(RICHTEXT_DEFAULTS.textOverflow)
+  declare public textOverflow: IOverflow | string
+  
+  // 段落属性
+  @boundsType(RICHTEXT_DEFAULTS.paraIndent)
+  declare public paraIndent: number
+  
+  @boundsType(RICHTEXT_DEFAULTS.paraSpacing)
+  declare public paraSpacing: number
+  
+  @boundsType(RICHTEXT_DEFAULTS.textAlign)
+  declare public textAlign: ITextAlign
+  
+  @boundsType(RICHTEXT_DEFAULTS.verticalAlign)
+  declare public verticalAlign: IVerticalAlign
+  
+  @dataType(RICHTEXT_DEFAULTS.autoSizeAlign)
+  declare public autoSizeAlign: boolean
+  
+  @boundsType(RICHTEXT_DEFAULTS.padding)
+  declare public padding: number | number[]
+  
+  // 尺寸控制
   @boundsType(0)
   declare public width: number
+  
+  @boundsType(0)
+  declare public height: number
+  
+  @boundsType(RICHTEXT_DEFAULTS.autoWidth)
+  declare public autoWidth: boolean
+  
+  @boundsType(RICHTEXT_DEFAULTS.autoHeight)
+  declare public autoHeight: boolean
+  
+  // 编辑相关
+  @boundsType(true)
+  declare public editable: boolean
   
   @surfaceType(RICHTEXT_DEFAULTS.cursorColor)
   declare public cursorColor: string
@@ -48,7 +120,7 @@ export class RichText extends UI {
   @surfaceType(RICHTEXT_DEFAULTS.selectionColor)
   declare public selectionColor: string
   
-  // 字符级样式（用于导入/导出 JSON）
+  // 字符级样式（用于导入/导出 JSON），set 时触发更新以保持响应式
   public get styles(): any {
     return this._serializeStyles()
   }
@@ -56,6 +128,9 @@ export class RichText extends UI {
   public set styles(value: any) {
     if (value) {
       this._deserializeStyles(value)
+      this.__layout.boxChanged || this.__layout.boxChange()
+      this.forceUpdate()
+      this.forceRender()
     }
   }
   
@@ -94,8 +169,15 @@ export class RichText extends UI {
   // 待应用的线性样式（文本变化过程中的临时存储）
   private _pendingLinearStyles: Map<number, ICharStyle> | null = null
   
+  // 标记：避免循环更新
+  private _isUpdatingBounds = false
+  
   constructor(data?: IRichTextInputData) {
     super(data)
+    
+    // ⚠️ 必须先创建测量 canvas，再处理样式（避免 _splitLinesWithWrap 报错）
+    this._measureCanvas = document.createElement('canvas')
+    this._measureCtx = this._measureCanvas.getContext('2d')!
     
     // 保存回调
     if (data?.onEditingEntered) this.onEditingEntered = data.onEditingEntered
@@ -109,10 +191,6 @@ export class RichText extends UI {
       // 兼容格式：index-based（旧格式）
       this._deserializeStyles(data.styles)
     }
-    
-    // 创建离屏 canvas 用于测量
-    this._measureCanvas = document.createElement('canvas')
-    this._measureCtx = this._measureCanvas.getContext('2d')!
     
     // 启用边界框命中检测
     this.hitBox = true
@@ -130,16 +208,40 @@ export class RichText extends UI {
    * 计算边界（必须实现）
    */
   __updateBoxBounds(): void {
+    if (this._isUpdatingBounds) return
+    this._isUpdatingBounds = true
+    
     this._updateGraphemes()
     this._measureText()
     
     const box = this.__layout.boxBounds
-    const { width, height } = this._getTextBounds()
+    const computed = this._getTextBounds()
+    
+    // 宽度：autoWidth 时使用计算值，否则优先使用设置值
+    let width = this.autoWidth || !this.width || this.width <= 0
+      ? computed.width
+      : this.width
+    
+    // 高度：autoHeight 时使用计算值，否则优先使用设置值
+    let height = this.autoHeight || !this.height || this.height <= 0
+      ? computed.height
+      : this.height
+    
+    // ✅ 关键：自动宽高模式下，实时更新 width/height 属性值
+    // 这样切换为固定宽高时，值不会丢失
+    if (this.autoWidth && computed.width > 0 && this.width !== computed.width) {
+      this.__.width = computed.width  // 直接设置到数据层，避免触发 boxChange
+    }
+    if (this.autoHeight && computed.height > 0 && this.height !== computed.height) {
+      this.__.height = computed.height
+    }
     
     box.x = 0
     box.y = 0
     box.width = width
     box.height = height
+    
+    this._isUpdatingBounds = false
   }
   
   /**
@@ -193,6 +295,19 @@ export class RichText extends UI {
   private _splitLines(): string[][] {
     if (!this._graphemes.length) return [[]]
     
+    // 如果启用了自动宽度，或 textWrap 是 'none'，或没有设置宽度，只按 \n 分行
+    if (this.autoWidth || this.textWrap === 'none' || !this.width || this.width <= 0) {
+      return this._splitLinesByNewline()
+    }
+    
+    // 自动换行逻辑（固定宽度 + textWrap 非 none）
+    return this._splitLinesWithWrap()
+  }
+  
+  /**
+   * 按换行符分行（不考虑宽度）
+   */
+  private _splitLinesByNewline(): string[][] {
     const lines: string[][] = []
     let currentLine: string[] = []
     
@@ -209,16 +324,123 @@ export class RichText extends UI {
     return lines.length ? lines : [[]]
   }
   
+  /**
+   * 带自动换行的分行逻辑
+   */
+  private _splitLinesWithWrap(): string[][] {
+    const lines: string[][] = []
+    const paragraphs = this._splitLinesByNewline() // 先按 \n 分段
+    
+    const padding = this._parsePadding(this.padding)
+    const maxWidth = this.width - padding.left - padding.right
+    
+    for (let paraIdx = 0; paraIdx < paragraphs.length; paraIdx++) {
+      const para = paragraphs[paraIdx]
+      if (para.length === 0) {
+        lines.push([])
+        continue
+      }
+      
+      let currentLine: string[] = []
+      let currentWidth = 0
+      
+      // 首行缩进
+      const indent = paraIdx === 0 || (paraIdx > 0 && paragraphs[paraIdx - 1].length === 0) 
+        ? this.paraIndent 
+        : 0
+      
+      for (let i = 0; i < para.length; i++) {
+        const char = para[i]
+        
+        // 预估字符宽度（使用基础样式，精确测量会在 _measureText 中）
+        const charWidth = this._estimateCharWidth(char)
+        const letterSpacing = typeof this.letterSpacing === 'number' ? this.letterSpacing : 0
+        
+        // 检查是否需要换行
+        if (currentWidth + charWidth > maxWidth - indent && currentLine.length > 0) {
+          if (this.textWrap === 'break') {
+            // 强制断词换行
+            lines.push(currentLine)
+            currentLine = [char]
+            currentWidth = charWidth + letterSpacing
+          } else {
+            // normal: 尝试在单词边界换行
+            const lastSpaceIdx = this._findLastSpace(currentLine)
+            if (lastSpaceIdx >= 0) {
+              // 在空格处断行
+              const beforeSpace = currentLine.slice(0, lastSpaceIdx)
+              const afterSpace = currentLine.slice(lastSpaceIdx + 1)
+              lines.push(beforeSpace)
+              currentLine = [...afterSpace, char]
+              currentWidth = this._estimateLineWidth(currentLine)
+            } else {
+              // 没有空格，强制断行
+              lines.push(currentLine)
+              currentLine = [char]
+              currentWidth = charWidth + letterSpacing
+            }
+          }
+        } else {
+          currentLine.push(char)
+          currentWidth += charWidth + letterSpacing
+        }
+      }
+      
+      if (currentLine.length > 0) {
+        lines.push(currentLine)
+      }
+    }
+    
+    return lines.length ? lines : [[]]
+  }
+  
+  /**
+   * 估算字符宽度（快速估算，精确测量在 _measureText 中）
+   */
+  private _estimateCharWidth(char: string): number {
+    return measureTextWidth(
+      this._measureCtx,
+      char,
+      this.fontSize,
+      this.fontFamily,
+      this.fontWeight,
+      this.italic
+    )
+  }
+  
+  /**
+   * 估算行宽度
+   */
+  private _estimateLineWidth(line: string[]): number {
+    const letterSpacing = typeof this.letterSpacing === 'number' ? this.letterSpacing : 0
+    return line.reduce((sum, char) => sum + this._estimateCharWidth(char) + letterSpacing, 0)
+  }
+  
+  /**
+   * 查找行中最后一个空格的索引
+   */
+  private _findLastSpace(line: string[]): number {
+    for (let i = line.length - 1; i >= 0; i--) {
+      if (RE_WORD_BOUNDARY.test(line[i])) {
+        return i
+      }
+    }
+    return -1
+  }
+  
   private _measureText(): void {
     this._lineMetrics = []
     
-    const lineHeight = this.fontSize * RICHTEXT_DEFAULTS.lineHeight
     let y = 0
     
     for (let lineIdx = 0; lineIdx < this._lines.length; lineIdx++) {
       const line = this._lines[lineIdx]
       const chars: ICharMetrics[] = []
-      let x = 0
+      
+      // 首行缩进（仅第一行或每段第一行）
+      let x = lineIdx === 0 || (lineIdx > 0 && this._lines[lineIdx - 1].length === 0) 
+        ? this.paraIndent 
+        : 0
       
       for (let charIdx = 0; charIdx < line.length; charIdx++) {
         const char = line[charIdx]
@@ -233,32 +455,121 @@ export class RichText extends UI {
           style.italic
         )
         
+        // 字间距
+        const letterSpacing = this._parseLetterSpacing(style.letterSpacing, style.fontSize!)
+        
         chars.push({ char, x, width, style })
-        x += width
+        x += width + letterSpacing
       }
       
+      // 行高（可被字符级样式影响，取最大 fontSize）
+      const maxFontSize = chars.length > 0 
+        ? Math.max(...chars.map(c => c.style.fontSize!))
+        : this.fontSize
+      const lineHeight = this._parseLineHeight(this.lineHeight, maxFontSize)
+      
       this._lineMetrics.push({ chars, y, height: lineHeight })
+      
+      // 段落间距（空行后添加）
       y += lineHeight
+      if (line.length === 0 && lineIdx < this._lines.length - 1) {
+        y += this.paraSpacing
+      }
+    }
+    
+    // 应用文本对齐（调整字符 x 坐标）
+    this._applyTextAlignToMetrics()
+  }
+  
+  /**
+   * 应用文本对齐到字符位置（两端对齐需要调整字符间距）
+   */
+  private _applyTextAlignToMetrics(): void {
+    const padding = this._parsePadding(this.padding)
+    const containerWidth = this.autoWidth 
+      ? 0 
+      : (this.width || 0) - padding.left - padding.right
+    
+    if (!containerWidth || containerWidth <= 0) return
+    
+    for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
+      const line = this._lineMetrics[lineIdx]
+      if (!line.chars.length) continue
+      
+      const { alignOffset, extraSpacing } = this._getAlignOffsetAndSpacing(line, lineIdx)
+      
+      // 应用对齐偏移和两端对齐间距
+      if (alignOffset !== 0 || extraSpacing !== 0) {
+        let cumulativeSpacing = 0
+        for (let i = 0; i < line.chars.length; i++) {
+          line.chars[i].x += alignOffset + cumulativeSpacing
+          cumulativeSpacing += extraSpacing
+        }
+      }
     }
   }
   
+  /**
+   * 解析 lineHeight（数字或百分比）
+   */
+  private _parseLineHeight(lineHeight: number | IUnitData, fontSize: number): number {
+    if (typeof lineHeight === 'number') {
+      return fontSize * lineHeight
+    }
+    if (lineHeight.type === 'percent') {
+      return fontSize * lineHeight.value
+    }
+    return lineHeight.value // px
+  }
+  
+  /**
+   * 解析 letterSpacing（数字或百分比）
+   */
+  private _parseLetterSpacing(letterSpacing: number | IUnitData | undefined, fontSize: number): number {
+    if (!letterSpacing) return 0
+    if (typeof letterSpacing === 'number') {
+      return letterSpacing
+    }
+    if (letterSpacing.type === 'percent') {
+      return fontSize * letterSpacing.value
+    }
+    return letterSpacing.value // px
+  }
+  
   private _getTextBounds(): { width: number; height: number } {
+    const padding = this._parsePadding(this.padding)
+    
     if (!this._lineMetrics.length) {
-      return { width: this.width || 100, height: this.fontSize * RICHTEXT_DEFAULTS.lineHeight }
+      const baseHeight = this.fontSize * (typeof this.lineHeight === 'number' ? this.lineHeight : RICHTEXT_DEFAULTS.lineHeight)
+      const baseWidth = this.autoWidth ? 100 : (this.width || 100)
+      return { 
+        width: baseWidth + padding.left + padding.right, 
+        height: baseHeight + padding.top + padding.bottom 
+      }
     }
     
-    const maxWidth = Math.max(
+    // 计算内容实际宽度
+    const contentWidth = Math.max(
       ...this._lineMetrics.map(line => {
         if (!line.chars.length) return 0
         const lastChar = line.chars[line.chars.length - 1]
-        return lastChar.x + lastChar.width
+        const letterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
+        return lastChar.x + lastChar.width + letterSpacing
       }),
-      this.width || 0
+      0
     )
+    
+    // 宽度：autoWidth 时使用内容宽度，否则取 max(内容宽度, 设置宽度)
+    const finalWidth = this.autoWidth 
+      ? contentWidth 
+      : Math.max(contentWidth, this.width || 0)
     
     const totalHeight = this._lineMetrics.reduce((sum, line) => sum + line.height, 0)
     
-    return { width: maxWidth || 100, height: totalHeight || this.fontSize * RICHTEXT_DEFAULTS.lineHeight }
+    return { 
+      width: finalWidth + padding.left + padding.right || 100, 
+      height: totalHeight + padding.top + padding.bottom || this.fontSize * RICHTEXT_DEFAULTS.lineHeight 
+    }
   }
   
   // ============ 样式管理 ============
@@ -267,12 +578,16 @@ export class RichText extends UI {
     const lineStyles = this._styles.get(lineIdx)
     const charStyle = lineStyles?.get(charIdx) || {}
     
-    const result = {
+    // 基础样式（从元素属性获取默认值，字符级样式可覆盖）
+    const result: ICharStyle = {
       fill: this.fill,
       fontSize: this.fontSize,
       fontFamily: this.fontFamily,
       fontWeight: this.fontWeight as any,
       italic: this.italic,
+      textCase: this.textCase,
+      textDecoration: this.textDecoration,
+      letterSpacing: this.letterSpacing,
       ...charStyle
     }
     
@@ -335,29 +650,34 @@ export class RichText extends UI {
   private _pointerToIndex(x: number, y: number): number {
     if (!this._lineMetrics.length) return 0
     
+    // 获取 padding 和调整坐标
+    const padding = this._parsePadding(this.padding)
+    const adjustedX = x - padding.left
+    const adjustedY = y - padding.top
+    
     // 找到对应的行
     let lineIndex = 0
     for (let i = 0; i < this._lineMetrics.length; i++) {
       const line = this._lineMetrics[i]
-      if (y >= line.y && y < line.y + line.height) {
+      if (adjustedY >= line.y && adjustedY < line.y + line.height) {
         lineIndex = i
         break
       }
-      if (y >= line.y + line.height) lineIndex = i
+      if (adjustedY >= line.y + line.height) lineIndex = i
     }
     
     lineIndex = Math.max(0, Math.min(lineIndex, this._lineMetrics.length - 1))
     const line = this._lineMetrics[lineIndex]
     if (!line) return 0
     
-    // 在行内找字符
+    // 在行内找字符（字符位置已包含对齐偏移）
     let charIndex = 0
     if (line.chars.length === 0) {
       charIndex = 0
     } else {
       for (let i = 0; i < line.chars.length; i++) {
         const char = line.chars[i]
-        if (x < char.x + char.width / 2) {
+        if (adjustedX < char.x + char.width / 2) {
           charIndex = i
           break
         }
@@ -371,18 +691,52 @@ export class RichText extends UI {
   // ============ 渲染方法 ============
   
   private _drawText(ctx: CanvasRenderingContext2D): void {
-    for (const line of this._lineMetrics) {
-      for (const char of line.chars) {
+    // 获取 padding（支持数组）
+    const padding = this._parsePadding(this.padding)
+    
+    // 检查是否需要处理溢出
+    const shouldClip = this.textOverflow === 'hide' || (typeof this.textOverflow === 'string' && this.textOverflow !== 'show')
+    const hasFixedSize = (this.width && this.width > 0 && !this.autoWidth) || (this.height && this.height > 0 && !this.autoHeight)
+    
+    if (shouldClip && hasFixedSize) {
+      ctx.save()
+      // 裁剪到内容区域
+      const { width, height } = this.__layout.boxBounds
+      ctx.beginPath()
+      ctx.rect(0, 0, width, height)
+      ctx.clip()
+    }
+    
+    for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
+      const line = this._lineMetrics[lineIdx]
+      
+      // 计算行的基线位置（所有字符共享同一基线）
+      const maxFontSize = line.chars.length > 0
+        ? Math.max(...line.chars.map(c => c.style.fontSize!))
+        : this.fontSize
+      const baseline = line.y + maxFontSize * 0.85  // 基线位置（约85%处）
+      
+      for (let charIdx = 0; charIdx < line.chars.length; charIdx++) {
+        const char = line.chars[charIdx]
         const { x, style } = char
-        const y = line.y + line.height * 0.8
+        
+        // 字符位置已在 _measureText 中计算好（包含对齐和两端对齐）
+        const finalX = x + padding.left
+        
+        // 基于字符自身字号计算基线偏移（让不同字号对齐底部）
+        const baselineOffset = (maxFontSize - style.fontSize!) * 0.85
+        const finalY = baseline + baselineOffset + padding.top
         
         ctx.save()
         
         // 背景色
         if (style.textBackgroundColor) {
           ctx.fillStyle = style.textBackgroundColor
-          ctx.fillRect(x, line.y, char.width, line.height)
+          ctx.fillRect(finalX, line.y + padding.top, char.width, line.height)
         }
+        
+        // 应用 textCase
+        let displayChar = this._applyTextCase(char.char, style.textCase)
         
         // 文字
         ctx.fillStyle = style.fill || '#000'
@@ -392,38 +746,197 @@ export class RichText extends UI {
           style.fontWeight,
           style.italic
         )
-        ctx.fillText(char.char, x, y)
+        ctx.fillText(displayChar, finalX, finalY)
         
-        // 下划线
-        if (style.underline) {
-          ctx.strokeStyle = style.fill || '#000'
-          ctx.lineWidth = 1
-          ctx.beginPath()
-          ctx.moveTo(x, y + 2)
-          ctx.lineTo(x + char.width, y + 2)
-          ctx.stroke()
-        }
-        
-        // 删除线
-        if (style.linethrough) {
-          ctx.strokeStyle = style.fill || '#000'
-          ctx.lineWidth = 1
-          ctx.beginPath()
-          const midY = line.y + line.height * 0.5
-          ctx.moveTo(x, midY)
-          ctx.lineTo(x + char.width, midY)
-          ctx.stroke()
-        }
+        // 绘制装饰线（textDecoration 或兼容旧的 underline/linethrough）
+        this._drawTextDecoration(ctx, style, finalX, finalY, char.width, line.height)
         
         ctx.restore()
       }
     }
+    
+    if (shouldClip && hasFixedSize) {
+      // 如果是自定义省略符（如 '...'），绘制在右下角
+      if (typeof this.textOverflow === 'string' && this.textOverflow !== 'show' && this.textOverflow !== 'hide') {
+        const { width, height } = this.__layout.boxBounds
+        ctx.fillStyle = this.fill || '#000'
+        ctx.font = buildFontString(this.fontSize, this.fontFamily, this.fontWeight, this.italic)
+        ctx.fillText(this.textOverflow, width - 30, height - 5)
+      }
+      ctx.restore()
+    }
+  }
+  
+  /**
+   * 应用文本大小写转换
+   */
+  private _applyTextCase(char: string, textCase: ITextCase | undefined): string {
+    if (!textCase || textCase === 'none') return char
+    
+    switch (textCase) {
+      case 'upper':
+        return char.toUpperCase()
+      case 'lower':
+        return char.toLowerCase()
+      case 'title':
+        // title 需要在词首大写，这里简化处理
+        return char.toUpperCase()
+      default:
+        return char
+    }
+  }
+  
+  /**
+   * 绘制文本装饰线（下划线、删除线）
+   */
+  private _drawTextDecoration(
+    ctx: CanvasRenderingContext2D, 
+    style: ICharStyle, 
+    x: number, 
+    y: number, 
+    width: number, 
+    lineHeight: number
+  ): void {
+    // 优先使用新的 textDecoration，兼容旧的 underline/linethrough
+    let decoration = style.textDecoration
+    let decorationColor: string = this._colorToString(style.fill) || '#000'
+    let decorationOffset = 0
+    
+    // 兼容旧属性
+    if (!decoration && (style.underline || style.linethrough)) {
+      if (style.underline && style.linethrough) {
+        decoration = 'under-delete'
+      } else if (style.underline) {
+        decoration = 'under'
+      } else {
+        decoration = 'delete'
+      }
+    }
+    
+    if (!decoration || decoration === 'none') return
+    
+    // 解析 textDecoration
+    if (typeof decoration === 'object') {
+      decorationColor = this._colorToString(decoration.color) || decorationColor
+      decorationOffset = decoration.offset || 0
+      decoration = decoration.type
+    }
+    
+    ctx.strokeStyle = decorationColor
+    ctx.lineWidth = 1
+    
+    // 下划线
+    if (decoration === 'under' || decoration === 'under-delete') {
+      const underlineY = y + 2 + decorationOffset
+      ctx.beginPath()
+      ctx.moveTo(x, underlineY)
+      ctx.lineTo(x + width, underlineY)
+      ctx.stroke()
+    }
+    
+    // 删除线
+    if (decoration === 'delete' || decoration === 'under-delete') {
+      const deleteY = y - lineHeight * 0.3
+      ctx.beginPath()
+      ctx.moveTo(x, deleteY)
+      ctx.lineTo(x + width, deleteY)
+      ctx.stroke()
+    }
+  }
+  
+  /**
+   * 将 IColor 转换为 CSS 颜色字符串
+   */
+  private _colorToString(color: any): string | undefined {
+    if (!color) return undefined
+    if (typeof color === 'string') return color
+    // 处理 RGB/RGBA 对象
+    if (typeof color === 'object') {
+      if ('r' in color && 'g' in color && 'b' in color) {
+        const a = 'a' in color ? color.a : 1
+        return `rgba(${color.r}, ${color.g}, ${color.b}, ${a})`
+      }
+    }
+    return String(color)
+  }
+  
+  /**
+   * 获取文本对齐偏移和两端对齐的额外间距
+   */
+  private _getAlignOffsetAndSpacing(line: ILineMetrics, lineIdx: number): { alignOffset: number; extraSpacing: number } {
+    if (!line.chars.length) return { alignOffset: 0, extraSpacing: 0 }
+    
+    // 计算行的实际宽度（包括最后一个字符的字间距）
+    const lastChar = line.chars[line.chars.length - 1]
+    const lastLetterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
+    const lineWidth = lastChar.x + lastChar.width + lastLetterSpacing
+    
+    // 容器宽度（考虑 padding）
+    const padding = this._parsePadding(this.padding)
+    const containerWidth = this.autoWidth 
+      ? lineWidth 
+      : (this.width || lineWidth) - padding.left - padding.right
+    
+    const gap = containerWidth - lineWidth
+    
+    switch (this.textAlign) {
+      case 'center':
+        return { alignOffset: gap / 2, extraSpacing: 0 }
+      
+      case 'right':
+        return { alignOffset: gap, extraSpacing: 0 }
+      
+      case 'justify':
+      case 'justify-letter':
+        // 两端对齐（最后一行除外）
+        if (lineIdx < this._lines.length - 1 && line.chars.length > 1 && gap > 0) {
+          // 将额外空间均分到字符间隔中
+          const extraSpacing = gap / (line.chars.length - 1)
+          return { alignOffset: 0, extraSpacing }
+        }
+        return { alignOffset: 0, extraSpacing: 0 }
+      
+      case 'both':
+      case 'both-letter':
+        // 强制两端对齐（包括最后一行）
+        if (line.chars.length > 1 && gap > 0) {
+          const extraSpacing = gap / (line.chars.length - 1)
+          return { alignOffset: 0, extraSpacing }
+        }
+        return { alignOffset: 0, extraSpacing: 0 }
+      
+      default:
+        return { alignOffset: 0, extraSpacing: 0 }
+    }
+  }
+  
+  /**
+   * 解析 padding（支持数字或数组）
+   */
+  private _parsePadding(padding: number | number[] | undefined): { top: number; right: number; bottom: number; left: number } {
+    if (!padding) return { top: 0, right: 0, bottom: 0, left: 0 }
+    
+    if (typeof padding === 'number') {
+      return { top: padding, right: padding, bottom: padding, left: padding }
+    }
+    
+    if (padding.length === 1) {
+      return { top: padding[0], right: padding[0], bottom: padding[0], left: padding[0] }
+    }
+    if (padding.length === 2) {
+      return { top: padding[0], right: padding[1], bottom: padding[0], left: padding[1] }
+    }
+    if (padding.length === 3) {
+      return { top: padding[0], right: padding[1], bottom: padding[2], left: padding[1] }
+    }
+    return { top: padding[0], right: padding[1], bottom: padding[2], left: padding[3] }
   }
   
   private _drawSelection(ctx: CanvasRenderingContext2D): void {
     const start = this._linearToLocation(this.selectionStart)
     const end = this._linearToLocation(this.selectionEnd)
     
+    const padding = this._parsePadding(this.padding)
     ctx.fillStyle = this.selectionColor
     
     for (let lineIdx = start.lineIndex; lineIdx <= end.lineIndex; lineIdx++) {
@@ -443,7 +956,8 @@ export class RichText extends UI {
       } else if (startChar >= line.chars.length) {
         // 行尾
         const lastChar = line.chars[line.chars.length - 1]
-        x1 = lastChar.x + lastChar.width
+        const letterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
+        x1 = lastChar.x + lastChar.width + letterSpacing
         x2 = x1 + 10
       } else {
         x1 = line.chars[startChar]?.x || 0
@@ -451,14 +965,18 @@ export class RichText extends UI {
           x2 = 0
         } else if (endChar >= line.chars.length) {
           const lastChar = line.chars[line.chars.length - 1]
-          x2 = lastChar.x + lastChar.width
+          const letterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
+          x2 = lastChar.x + lastChar.width + letterSpacing
         } else {
           x2 = line.chars[endChar]?.x || x1
         }
       }
       
       if (x2 > x1) {
-        ctx.fillRect(x1, line.y, x2 - x1, line.height)
+        // 字符位置已包含对齐偏移，只需加 padding
+        const finalX1 = x1 + padding.left
+        const finalY = line.y + padding.top
+        ctx.fillRect(finalX1, finalY, x2 - x1, line.height)
       }
     }
   }
@@ -468,19 +986,29 @@ export class RichText extends UI {
     const line = this._lineMetrics[loc.lineIndex]
     if (!line) return
     
+    // 获取 padding
+    const padding = this._parsePadding(this.padding)
+    
     let x = 0
     if (line.chars.length === 0 || loc.charIndex === 0) {
-      x = 0
+      // 空行或行首
+      x = loc.charIndex === 0 && line.chars.length > 0 ? line.chars[0].x : 0
     } else if (loc.charIndex >= line.chars.length) {
+      // 行尾
       const lastChar = line.chars[line.chars.length - 1]
-      x = lastChar.x + lastChar.width
+      const letterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
+      x = lastChar.x + lastChar.width + letterSpacing
     } else {
       x = line.chars[loc.charIndex].x
     }
     
+    // 字符位置已包含对齐偏移，只需加 padding
+    const finalX = x + padding.left
+    const finalY = line.y + padding.top
+    
     ctx.globalAlpha = this._cursorOpacity
     ctx.fillStyle = this.cursorColor
-    ctx.fillRect(x, line.y, this.cursorWidth, line.height)
+    ctx.fillRect(finalX, finalY, this.cursorWidth, line.height)
   }
   
   // ============ 事件绑定 ============
@@ -1178,15 +1706,32 @@ export class RichText extends UI {
     }
     return styles
   }
+
+  /**
+   * 获取某一下标处的有效样式（用于未进入编辑时面板展示整段样式）
+   */
+  public getStyleAt(linearIndex: number): ICharStyle {
+    if (!this._lines.length) {
+      return {
+        fontSize: this.fontSize,
+        fontFamily: this.fontFamily,
+        fontWeight: this.fontWeight as any,
+        fill: this.fill,
+        italic: this.italic
+      }
+    }
+    const loc = this._linearToLocation(Math.max(0, Math.min(linearIndex, this._graphemes.length)))
+    return this._getCharStyle(loc.lineIndex, loc.charIndex)
+  }
   
   /**
    * 清除选区样式
    */
   public clearSelectionStyles(): void {
     if (this.selectionStart === this.selectionEnd) return
-    
+
     this._recordSnapshot()
-    
+
     for (let i = this.selectionStart; i < this.selectionEnd; i++) {
       const loc = this._linearToLocation(i)
       const lineStyles = this._styles.get(loc.lineIndex)
@@ -1194,8 +1739,59 @@ export class RichText extends UI {
         lineStyles.delete(loc.charIndex)
       }
     }
-    
+
     // 重新测量和渲染
+    this._measureText()
+    this.forceUpdate()
+    this.forceRender()
+  }
+
+  /**
+   * 全量设置整段文本样式（不进入编辑器时面板修改用）
+   * 只修改指定的样式属性，保留其他字符级样式
+   */
+  public setFullTextStyles(styleObj: Partial<ICharStyle>): void {
+    this._updateGraphemes()
+    this._recordSnapshot()
+
+    // 更新基础样式属性
+    if (styleObj.fontSize !== undefined) this.fontSize = styleObj.fontSize
+    if (styleObj.fontFamily !== undefined) this.fontFamily = styleObj.fontFamily
+    if (styleObj.fontWeight !== undefined) this.fontWeight = styleObj.fontWeight
+    if (styleObj.fill !== undefined) this.fill = styleObj.fill
+    if (styleObj.italic !== undefined) this.italic = styleObj.italic
+    if (styleObj.textCase !== undefined) this.textCase = styleObj.textCase
+    if (styleObj.textDecoration !== undefined) this.textDecoration = styleObj.textDecoration
+    if (styleObj.letterSpacing !== undefined) this.letterSpacing = styleObj.letterSpacing
+
+    // 遍历所有字符，只更新 styleObj 中指定的属性，保留其他样式
+    const len = this._graphemes.length
+    for (let i = 0; i < len; i++) {
+      const loc = this._linearToLocation(i)
+      
+      // 确保 Map 结构存在
+      if (!this._styles.has(loc.lineIndex)) {
+        this._styles.set(loc.lineIndex, new Map())
+      }
+      
+      // 获取现有样式，合并新样式
+      const existing = this._styles.get(loc.lineIndex)!.get(loc.charIndex) || {}
+      const merged = { ...existing, ...styleObj }
+      
+      this._styles.get(loc.lineIndex)!.set(loc.charIndex, merged)
+    }
+
+    this._measureText()
+    this.forceUpdate()
+    this.forceRender()
+  }
+
+  /**
+   * 清除整段文本的字符级样式，全部回退为基础样式
+   */
+  public clearFullTextStyles(): void {
+    this._recordSnapshot()
+    this._styles.clear()
     this._measureText()
     this.forceUpdate()
     this.forceRender()

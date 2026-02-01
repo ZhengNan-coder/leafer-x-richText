@@ -1,5 +1,6 @@
 // 主入口 - RichText Demo
 import { App } from 'leafer-ui'
+import { EditorEvent, InnerEditorEvent } from '@leafer-in/editor'
 import { RichText } from './richtext'
 import type { ICharStyle } from './richtext'
 // RichTextEditor 会在 import richtext 时自动注册
@@ -13,23 +14,72 @@ const app = new App({
   editor: {}  // 启用编辑器
 })
 
-// 创建 RichText 实例（多样式示例）
+// 当前被面板操作的 RichText（选中或正在编辑的任意一个）
+let currentRichText: RichText | null = null
+
+function getCurrentRichText(): RichText | null {
+  return currentRichText
+}
+
+function setCurrentRichText(rt: RichText | null): void {
+  currentRichText = rt
+  updatePanelFromRichText(rt)
+}
+
+// 创建 RichText 实例（多样式示例 - 自动宽高）
 const richtext = new RichText({
   x: 100,
   y: 100,
-  text: '欢迎使用 RichText！\n这是一段支持富文本编辑的文字。\n你可以设置不同的样式。',
+  text: '欢迎使用 RichText！\n这是一段支持自动宽高的文本。\n宽度和高度会随内容自动调整。',
   fontSize: 24,
   fill: '#333',
   editable: true,
-  // 使用回调避免 emit 问题
+  
+  // 自动宽高（默认 true，宽高由内容决定）
+  autoWidth: true,
+  autoHeight: true,
+  
+  // 其他属性
+  lineHeight: 1.8,
+  letterSpacing: 1,
+  textAlign: 'left',
+  padding: 15,
+  
   onEditingEntered: () => updateSelectionInfo(),
   onEditingExited: () => updateSelectionInfo()
 })
 
 app.tree.add(richtext)
+currentRichText = richtext
 
 // 获取编辑器实例
 const editor = app.editor
+
+// 通用：选中变化或进入内部编辑时，同步“当前 RichText”
+if (editor) {
+  editor.on(EditorEvent.SELECT as any, () => {
+    const list = editor.list
+    if (list?.length && (list[0] as any).__tag === 'RichText') {
+      setCurrentRichText(list[0] as RichText)
+    } else {
+      setCurrentRichText(null)
+    }
+  })
+  editor.on(EditorEvent.AFTER_SELECT as any, () => {
+    const list = editor.list
+    if (list?.length && (list[0] as any).__tag === 'RichText') {
+      setCurrentRichText(list[0] as RichText)
+    } else {
+      setCurrentRichText(null)
+    }
+  })
+  editor.on(InnerEditorEvent.OPEN as any, (e: { editTarget: any }) => {
+    const target = e?.editTarget
+    if (target?.__tag === 'RichText') {
+      setCurrentRichText(target as RichText)
+    }
+  })
+}
 
 
 
@@ -38,11 +88,11 @@ const editor = app.editor
 setTimeout(() => {
   richtext.enterEditing()
   
-  // 第一行 "欢迎使用" - 加粗红色大字
+  // "欢迎使用" - 加粗红色大字
   richtext.selectionStart = 0
   richtext.selectionEnd = 4
   richtext.setSelectionStyles({
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     fill: '#ff0000'
   })
@@ -53,34 +103,15 @@ setTimeout(() => {
   richtext.setSelectionStyles({
     fill: '#0066ff',
     italic: true,
-    fontSize: 28
+    textCase: 'upper'
   })
   
-  // 第二行 "这是一段支持" - 绿色下划线
-  const line2Start = 14
-  richtext.selectionStart = line2Start
-  richtext.selectionEnd = line2Start + 6
+  // "自动换行" - 绿色下划线
+  richtext.selectionStart = 30
+  richtext.selectionEnd = 34
   richtext.setSelectionStyles({
-    underline: true,
+    textDecoration: 'under',
     fill: '#00aa00',
-    fontSize: 20
-  })
-  
-  // "富文本编辑" - 紫色加粗
-  richtext.selectionStart = line2Start + 6
-  richtext.selectionEnd = line2Start + 11
-  richtext.setSelectionStyles({
-    fill: '#9900ff',
-    fontWeight: 'bold',
-    fontSize: 26
-  })
-  
-  // 第三行 "不同的样式" - 黄色背景
-  const line3Start = 14 + 15 + 1
-  richtext.selectionStart = line3Start + 3
-  richtext.selectionEnd = line3Start + 8
-  richtext.setSelectionStyles({
-    textBackgroundColor: '#ffff00',
     fontWeight: 'bold'
   })
   
@@ -93,6 +124,17 @@ setTimeout(() => {
 const fontSizeInput = document.getElementById('fontSize') as HTMLInputElement
 const fontFamilySelect = document.getElementById('fontFamily') as HTMLSelectElement
 const fillInput = document.getElementById('fill') as HTMLInputElement
+const letterSpacingInput = document.getElementById('letterSpacing') as HTMLInputElement
+const lineHeightInput = document.getElementById('lineHeight') as HTMLInputElement
+const textAlignSelect = document.getElementById('textAlign') as HTMLSelectElement
+const textCaseSelect = document.getElementById('textCase') as HTMLSelectElement
+const paddingInput = document.getElementById('padding') as HTMLInputElement
+const autoWidthCheckbox = document.getElementById('autoWidth') as HTMLInputElement
+const autoHeightCheckbox = document.getElementById('autoHeight') as HTMLInputElement
+const fixedWidthInput = document.getElementById('fixedWidth') as HTMLInputElement
+const fixedHeightInput = document.getElementById('fixedHeight') as HTMLInputElement
+const textWrapSelect = document.getElementById('textWrap') as HTMLSelectElement
+const textOverflowSelect = document.getElementById('textOverflow') as HTMLSelectElement
 const btnBold = document.getElementById('btnBold')!
 const btnItalic = document.getElementById('btnItalic')!
 const btnUnderline = document.getElementById('btnUnderline')!
@@ -103,22 +145,99 @@ const btnAddText = document.getElementById('btnAddText')!
 const btnExportJSON = document.getElementById('btnExportJSON')!
 const selectionInfo = document.getElementById('selectionInfo')!
 
-// 应用样式到选区
+// 根据当前选中的 RichText 更新面板控件
+function updatePanelFromRichText(rt: RichText | null): void {
+  if (!fontSizeInput || !fillInput || !fontFamilySelect) return
+  if (!rt) {
+    fontSizeInput.value = '24'
+    fillInput.value = '#333333'
+    fontFamilySelect.value = 'Arial'
+    letterSpacingInput.value = '0'
+    lineHeightInput.value = '1.5'
+    textAlignSelect.value = 'left'
+    textCaseSelect.value = 'none'
+    paddingInput.value = '0'
+    autoWidthCheckbox.checked = true
+    autoHeightCheckbox.checked = true
+    fixedWidthInput.value = '400'
+    fixedHeightInput.value = '200'
+    fixedWidthInput.disabled = true
+    fixedHeightInput.disabled = true
+    textWrapSelect.value = 'normal'
+    textOverflowSelect.value = 'show'
+    btnBold?.classList.remove('active')
+    btnItalic?.classList.remove('active')
+    btnUnderline?.classList.remove('active')
+    btnStrike?.classList.remove('active')
+    return
+  }
+  
+  // 获取当前样式（选区样式或基础样式）
+  const style = rt.isEditing && rt.selectionStart !== rt.selectionEnd
+    ? rt.getSelectionStyles()[0]
+    : rt.getStyleAt(0)
+  const s = style || {}
+  
+  // 基础样式
+  fontSizeInput.value = String(s.fontSize ?? rt.fontSize ?? 24)
+  fillInput.value = (s.fill ?? rt.fill ?? '#333').toString().slice(0, 7)
+  fontFamilySelect.value = (s.fontFamily ?? rt.fontFamily ?? 'Arial') as string
+  
+  // 新属性
+  const letterSpacing = s.letterSpacing ?? rt.letterSpacing ?? 0
+  letterSpacingInput.value = String(typeof letterSpacing === 'number' ? letterSpacing : letterSpacing.value)
+  
+  // lineHeight 是段落属性，从元素获取
+  const lineHeight = rt.lineHeight ?? 1.5
+  lineHeightInput.value = String(typeof lineHeight === 'number' ? lineHeight : lineHeight.value)
+  
+  textAlignSelect.value = (rt.textAlign ?? 'left') as string
+  textCaseSelect.value = (s.textCase ?? rt.textCase ?? 'none') as string
+  
+  const padding = rt.padding ?? 0
+  paddingInput.value = String(typeof padding === 'number' ? padding : padding[0])
+  
+  autoWidthCheckbox.checked = rt.autoWidth ?? true
+  autoHeightCheckbox.checked = rt.autoHeight ?? true
+  fixedWidthInput.value = String(rt.width ?? 400)
+  fixedHeightInput.value = String(rt.height ?? 200)
+  fixedWidthInput.disabled = autoWidthCheckbox.checked
+  fixedHeightInput.disabled = autoHeightCheckbox.checked
+  
+  textWrapSelect.value = (rt.textWrap ?? 'normal') as string
+  textOverflowSelect.value = (rt.textOverflow ?? 'show') as string
+  
+  // 样式按钮
+  const styleObj = s as ICharStyle
+  if (btnBold) btnBold.classList.toggle('active', styleObj.fontWeight === 'bold')
+  if (btnItalic) btnItalic.classList.toggle('active', !!styleObj.italic)
+  if (btnUnderline) btnUnderline.classList.toggle('active', !!styleObj.underline)
+  if (btnStrike) btnStrike.classList.toggle('active', !!styleObj.linethrough)
+}
+
+// 应用样式：未进入编辑或无选区时作用整段（全量样式），有选区时作用选区
 function applyStyle(styleObj: Partial<ICharStyle>) {
-  if (!richtext.isEditing) {
-    alert('请先点击文本进入编辑模式')
+  const rt = getCurrentRichText()
+  if (!rt) {
+    alert('请先选中文本')
     return
   }
-  
-  if (richtext.selectionStart === richtext.selectionEnd) {
-    alert('请先选中文字')
-    return
+  const hasSelection = rt.isEditing && rt.selectionStart !== rt.selectionEnd
+  if (hasSelection) {
+    rt.setSelectionStyles(styleObj)
+  } else {
+    rt.setFullTextStyles(styleObj)
   }
-  
-  richtext.setSelectionStyles(styleObj)
+  updatePanelFromRichText(rt)
 }
 
 // 事件监听（添加聚焦处理）
+function getCurrentStyleForPanel(rt: RichText): ICharStyle | undefined {
+  return rt.isEditing && rt.selectionStart !== rt.selectionEnd
+    ? rt.getSelectionStyles()[0]
+    : rt.getStyleAt(0)
+}
+
 fontSizeInput.addEventListener('input', () => {
   applyStyle({ fontSize: parseInt(fontSizeInput.value) })
   refocusTextarea()
@@ -135,80 +254,209 @@ fillInput.addEventListener('input', () => {
 })
 
 btnBold.addEventListener('click', () => {
-  const styles = richtext.getSelectionStyles()
-  const isBold = styles[0]?.fontWeight === 'bold'
+  const rt = getCurrentRichText()
+  if (!rt) return
+  const s = getCurrentStyleForPanel(rt)
+  const isBold = s?.fontWeight === 'bold'
   applyStyle({ fontWeight: isBold ? 'normal' : 'bold' })
   refocusTextarea()
 })
 
 btnItalic.addEventListener('click', () => {
-  const styles = richtext.getSelectionStyles()
-  const isItalic = styles[0]?.italic === true
+  const rt = getCurrentRichText()
+  if (!rt) return
+  const s = getCurrentStyleForPanel(rt)
+  const isItalic = s?.italic === true
   applyStyle({ italic: !isItalic })
   refocusTextarea()
 })
 
 btnUnderline.addEventListener('click', () => {
-  const styles = richtext.getSelectionStyles()
-  const hasUnderline = styles[0]?.underline === true
+  const rt = getCurrentRichText()
+  if (!rt) return
+  const s = getCurrentStyleForPanel(rt)
+  const hasUnderline = s?.underline === true
   applyStyle({ underline: !hasUnderline })
   refocusTextarea()
 })
 
 btnStrike.addEventListener('click', () => {
-  const styles = richtext.getSelectionStyles()
-  const hasStrike = styles[0]?.linethrough === true
+  const rt = getCurrentRichText()
+  if (!rt) return
+  const s = getCurrentStyleForPanel(rt)
+  const hasStrike = s?.linethrough === true
   applyStyle({ linethrough: !hasStrike })
   refocusTextarea()
 })
 
-// 重新聚焦 textarea
+// 新属性控件事件
+letterSpacingInput.addEventListener('input', () => {
+  applyStyle({ letterSpacing: parseFloat(letterSpacingInput.value) })
+  refocusTextarea()
+})
+
+lineHeightInput.addEventListener('input', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  // lineHeight 是段落属性，应用到整个元素
+  rt.lineHeight = parseFloat(lineHeightInput.value)
+  updatePanelFromRichText(rt)
+  refocusTextarea()
+})
+
+textAlignSelect.addEventListener('change', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  // textAlign 是段落属性，应用到整个元素
+  rt.textAlign = textAlignSelect.value as any
+  updatePanelFromRichText(rt)
+  refocusTextarea()
+})
+
+textCaseSelect.addEventListener('change', () => {
+  applyStyle({ textCase: textCaseSelect.value as any })
+  refocusTextarea()
+})
+
+paddingInput.addEventListener('input', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  rt.padding = parseFloat(paddingInput.value)
+  refocusTextarea()
+})
+
+textWrapSelect.addEventListener('change', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  rt.textWrap = textWrapSelect.value as any
+  refocusTextarea()
+})
+
+textOverflowSelect.addEventListener('change', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  rt.textOverflow = textOverflowSelect.value
+  refocusTextarea()
+})
+
+// 自动宽度控制
+autoWidthCheckbox.addEventListener('change', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  
+  // 如果切换为固定宽度，且当前 width 为 0，设置为当前实际宽度
+  if (!autoWidthCheckbox.checked && (!rt.width || rt.width <= 0)) {
+    const currentWidth = rt.__layout.boxBounds.width
+    rt.width = currentWidth > 0 ? currentWidth : 400
+    fixedWidthInput.value = String(rt.width)
+  }
+  
+  rt.autoWidth = autoWidthCheckbox.checked
+  fixedWidthInput.disabled = autoWidthCheckbox.checked
+  updatePanelFromRichText(rt)
+  refocusTextarea()
+})
+
+// 自动高度控制
+autoHeightCheckbox.addEventListener('change', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  
+  // 如果切换为固定高度，且当前 height 为 0，设置为当前实际高度
+  if (!autoHeightCheckbox.checked && (!rt.height || rt.height <= 0)) {
+    const currentHeight = rt.__layout.boxBounds.height
+    rt.height = currentHeight > 0 ? currentHeight : 200
+    fixedHeightInput.value = String(rt.height)
+  }
+  
+  rt.autoHeight = autoHeightCheckbox.checked
+  fixedHeightInput.disabled = autoHeightCheckbox.checked
+  updatePanelFromRichText(rt)
+  refocusTextarea()
+})
+
+// 固定宽度输入
+fixedWidthInput.addEventListener('input', () => {
+  const rt = getCurrentRichText()
+  if (!rt || rt.autoWidth) return
+  rt.width = parseFloat(fixedWidthInput.value)
+  updatePanelFromRichText(rt)
+  refocusTextarea()
+})
+
+// 固定高度输入
+fixedHeightInput.addEventListener('input', () => {
+  const rt = getCurrentRichText()
+  if (!rt || rt.autoHeight) return
+  rt.height = parseFloat(fixedHeightInput.value)
+  updatePanelFromRichText(rt)
+  refocusTextarea()
+})
+
+// 重新聚焦当前 RichText 的 textarea（仅编辑中时有效）
 function refocusTextarea() {
-  setTimeout(() => {
-    richtext.refocus()
-  }, 50)
+  const rt = getCurrentRichText()
+  if (rt?.isEditing) setTimeout(() => rt.refocus(), 50)
 }
 
 btnSelectAll.addEventListener('click', () => {
-  if (!richtext.isEditing) {
-    richtext.enterEditing()
+  const rt = getCurrentRichText()
+  if (!rt) {
+    alert('请先选中或点击文本')
+    return
   }
-  richtext.selectAll()
+  if (!rt.isEditing) rt.enterEditing()
+  rt.selectAll()
   refocusTextarea()
 })
 
 btnClearStyles.addEventListener('click', () => {
-  if (!richtext.isEditing) {
-    alert('请先点击文本进入编辑模式')
+  const rt = getCurrentRichText()
+  if (!rt) {
+    alert('请先选中文本')
     return
   }
-  
-  if (richtext.selectionStart === richtext.selectionEnd) {
-    alert('请先选中文字')
-    return
+  if (rt.isEditing && rt.selectionStart !== rt.selectionEnd) {
+    rt.clearSelectionStyles()
+  } else {
+    rt.clearFullTextStyles()
   }
-  
-  richtext.clearSelectionStyles()
+  updatePanelFromRichText(rt)
   refocusTextarea()
 })
 
 btnAddText.addEventListener('click', () => {
-  // ✅ 使用 styleRanges 格式创建多样式文本
   const newText = new RichText({
     x: 100,
     y: 450,
-    text: '新建文本：支持多样式！',
+    text: '固定宽度文本：超过宽度会自动换行！这是一段很长的文本，用来测试固定宽度下的自动换行效果。',
     fontSize: 20,
     fill: '#666',
     editable: true,
-    width: 400,
-    // ✅ styleRanges 格式（简洁、和导出一致）
+    
+    // 固定宽度，自动高度
+    width: 300,
+    autoWidth: false,  // 固定宽度
+    autoHeight: true,  // 高度自动
+    
+    // 段落属性
+    lineHeight: 1.8,
+    textAlign: 'left',
+    padding: 15,
+    textWrap: 'normal',  // 启用自动换行
+    
+    // 字符级样式
     styleRanges: [
-      { start: 0, end: 4, fontSize: 28, fontWeight: 'bold', fill: '#ff6600' },
-      { start: 5, end: 9, fontSize: 24, italic: true, fill: '#0088ff' }
-    ]
+      { start: 0, end: 4, fontSize: 24, fontWeight: 'bold', fill: '#ff6600' },
+      { start: 10, end: 14, fontSize: 22, italic: true, fill: '#0088ff', textDecoration: 'under' }
+    ],
+    onEditingEntered: () => updateSelectionInfo(),
+    onEditingExited: () => updateSelectionInfo()
   })
   app.tree.add(newText)
+  // 选中新文本，使右侧面板立即作用于它
+  if (editor) editor.select(newText as any)
+  setCurrentRichText(newText)
 })
 
 
@@ -277,17 +525,22 @@ function serializeStyles(stylesMap: any): any {
   return result
 }
 
-// 更新选区信息显示
+// 更新选区信息显示（基于当前 RichText）
 function updateSelectionInfo() {
-  if (richtext.isEditing) {
-    const start = richtext.selectionStart
-    const end = richtext.selectionEnd
+  const rt = getCurrentRichText()
+  if (!rt) {
+    selectionInfo.textContent = '未选中文本'
+    return
+  }
+  if (rt.isEditing) {
+    const start = rt.selectionStart
+    const end = rt.selectionEnd
     const length = end - start
-    selectionInfo.textContent = length > 0 
+    selectionInfo.textContent = length > 0
       ? `选中了 ${length} 个字符 (${start}-${end})`
       : `光标位置: ${start}`
   } else {
-    selectionInfo.textContent = '未编辑'
+    selectionInfo.textContent = '已选中，双击进入编辑'
   }
 }
 

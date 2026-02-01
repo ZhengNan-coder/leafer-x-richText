@@ -144,8 +144,29 @@ interface ICharStyle {
 |------|------|------|
 | `text` | `string` | 文本内容，可读写 |
 | `isEditing` | `boolean` | 是否处于编辑状态 |
-| `selectionStart` | `number` | 选区起始索引 |
-| `selectionEnd` | `number` | 选区结束索引 |
+| `selectionStart` | `number` | 选区起始索引（线性字符下标，含） |
+| `selectionEnd` | `number` | 选区结束索引（线性字符下标，不含） |
+
+#### selectionStart / selectionEnd 用法与实时性
+
+- **含义**：与原生 `input/textarea` 的 `selectionStart`、`selectionEnd` 一致，表示**线性字符索引**（0 为第一个字符，换行算一个字符）。`selectionStart === selectionEnd` 表示光标位置，不等表示选区范围。
+- **是否实时更新**：**是**。内部在以下情况会同步并重绘：
+  - **画布上点击/拖拽**：根据点击位置计算索引，写入 `selectionStart`/`selectionEnd`，并 `forceRender()`，画布上的选区高亮和光标会立即更新（类似 Leafer 框选的高亮）。
+  - **键盘**：方向键、Home/End、Shift+方向键等在 `keydown` 里更新索引并 `forceRender()`。
+  - **输入/删除**：`input` 事件里从隐藏的 textarea 同步到 RichText，再 `forceRender()`。
+- **读写**：可直接读写这两个字段；**写**时修改的是“当前选区/光标”，画布会在下一次渲染时体现（内部逻辑在修改后都会调用 `forceRender()`，无需外部再调）。
+- **示例**：
+  ```ts
+  // 读取：当前选区/光标
+  const start = richtext.selectionStart
+  const end = richtext.selectionEnd
+  const selectedText = richtext.text.slice(start, end)
+
+  // 写入：设置选区（需在编辑状态下），改完后需 forceRender 才能更新画布
+  richtext.selectionStart = 0
+  richtext.selectionEnd = 5
+  richtext.forceRender()
+  ```
 
 ---
 
