@@ -25,11 +25,32 @@ export class RichTextEditor extends InnerEditor {
       richtext.enterEditing()
     }
     
-    // ✅ 禁用 Editor 的键盘快捷键（防止方向键移动元素）
+    // ✅ 方案1：禁用 Editor 的键盘快捷键
     this._savedEditorConfig = {
-      hotkey: editor.config.hotkey
+      hotkey: editor.config.hotkey,
+      keyEvent: (editor as any).keyEvent
     }
-    editor.config.hotkey = false  // 临时禁用所有快捷键
+    editor.config.hotkey = false
+    
+    // ✅ 方案2：锁定元素（防止 Editor 处理移动/缩放）
+    // 保存原始 locked 状态
+    if (!this._savedEditorConfig.locked) {
+      this._savedEditorConfig.locked = (richtext as any).locked
+    }
+    ;(richtext as any).locked = true  // 临时锁定
+    
+    // ✅ 方案3：临时禁用 Editor 的键盘事件处理器
+    if ((editor as any).keyEvent) {
+      (editor as any).keyEvent.disable?.()
+    }
+    
+    // ✅ 方案4：从 Editor 的选中列表中临时移除（最强力）
+    // 这样 Editor 完全不会处理这个元素的任何操作
+    this._savedEditorConfig.wasInList = editor.list?.includes(richtext)
+    if (this._savedEditorConfig.wasInList) {
+      // 临时清空选中列表（内部编辑时不需要外部选中框）
+      editor.list = []
+    }
     
     // 重要：让 RichText 能接收 pointer 事件
     // Editor 在 innerEditing 时会停止事件传播，需要手动转发
@@ -95,9 +116,25 @@ export class RichTextEditor extends InnerEditor {
       richtext.exitEditing()
     }
     
-    // ✅ 恢复 Editor 的键盘快捷键配置
+    // ✅ 恢复 Editor 的配置
     if (this._savedEditorConfig) {
       editor.config.hotkey = this._savedEditorConfig.hotkey
+      
+      // 恢复 locked 状态
+      if (this._savedEditorConfig.locked !== undefined) {
+        (richtext as any).locked = this._savedEditorConfig.locked
+      }
+      
+      // 恢复键盘事件处理器
+      if (this._savedEditorConfig.keyEvent && (editor as any).keyEvent) {
+        (editor as any).keyEvent.enable?.()
+      }
+      
+      // 恢复选中列表
+      if (this._savedEditorConfig.wasInList) {
+        editor.select(richtext as any)
+      }
+      
       this._savedEditorConfig = null
     }
     
