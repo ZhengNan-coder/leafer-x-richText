@@ -228,28 +228,16 @@ export class RichText extends UI {
     const computed = this._getTextBounds()
     
     // ✅ 支持负宽高：保存翻转标记，使用绝对值计算
-    const wasFlippedX = this._isFlippedX
-    const wasFlippedY = this._isFlippedY
     const newFlippedX = !this.autoWidth && this.width < 0
     const newFlippedY = !this.autoHeight && this.height < 0
     
-    // 检测翻转状态改变
-    const flipChanged = wasFlippedX !== newFlippedX || wasFlippedY !== newFlippedY
-    
     // 调试：输出翻转状态变化
-    if (this.debugMode && flipChanged) {
-      console.log(`[RichText] 翻转状态变化: FlipX ${wasFlippedX} → ${newFlippedX}, FlipY ${wasFlippedY} → ${newFlippedY}, width=${this.width}`)
+    if (this.debugMode && (newFlippedX !== this._isFlippedX || newFlippedY !== this._isFlippedY)) {
+      console.log(`[RichText] 翻转状态变化: FlipX ${this._isFlippedX} → ${newFlippedX}, FlipY ${this._isFlippedY} → ${newFlippedY}, width=${this.width}, height=${this.height}`)
     }
     
     this._isFlippedX = newFlippedX
     this._isFlippedY = newFlippedY
-    
-    // ✅ 关键：翻转状态改变时，标记整个元素需要重新渲染
-    // 这样 Leafer 会清除旧位置的渲染
-    if (flipChanged) {
-      // 强制整个元素重新渲染（清除残影）
-      this.__layout.renderChanged || this.__layout.renderChange()
-    }
     
     // 宽度：autoWidth 时使用计算值，否则使用绝对值
     let width = this.autoWidth || !this.width || this.width === 0
@@ -279,29 +267,6 @@ export class RichText extends UI {
   }
   
   /**
-   * 更新渲染边界（扩大脏矩形，解决翻转残影）
-   * Leafer 用这个方法决定重绘区域
-   */
-  __updateRenderBounds(): void {
-    const { renderBounds } = this.__layout
-    const { boxBounds } = this.__layout
-    
-    // ✅ 关键：扩大渲染边界以包含所有可能的内容
-    // 特别是翻转时，文本可能渲染在 boxBounds 之外
-    const margin = 50  // 额外边距（考虑 padding、溢出等）
-    
-    renderBounds.x = boxBounds.x - margin
-    renderBounds.y = boxBounds.y - margin
-    renderBounds.width = boxBounds.width + margin * 2
-    renderBounds.height = boxBounds.height + margin * 2
-    
-    // 调试：输出渲染边界
-    if (this.debugMode) {
-      console.log(`[RichText] renderBounds: x=${renderBounds.x}, y=${renderBounds.y}, w=${renderBounds.width}, h=${renderBounds.height}`)
-    }
-  }
-  
-  /**
    * 绘制碰撞路径（必须实现）
    */
   __drawHitPath(hitCanvas: ILeaferCanvas): void {
@@ -310,6 +275,42 @@ export class RichText extends UI {
     
     context.beginPath()
     context.rect(x, y, width, height)
+  }
+  
+  /**
+   * ✅ 关键修复：更新渲染边界
+   * 扩大渲染区域以包含翻转可能覆盖的范围
+   * 解决翻转后残影问题
+   */
+  __updateRenderBounds(): void {
+    const layout = this.__layout
+    const box = layout.boxBounds
+    const render = layout.renderBounds
+    
+    // 如果有翻转，扩大渲染边界
+    if (this._isFlippedX || this._isFlippedY) {
+      // 计算翻转可能覆盖的最大范围
+      // 水平翻转：可能覆盖 x - width 到 x + width
+      // 垂直翻转：可能覆盖 y - height 到 y + height
+      
+      const expandX = this._isFlippedX ? box.width : 0
+      const expandY = this._isFlippedY ? box.height : 0
+      
+      render.x = box.x - expandX
+      render.y = box.y - expandY
+      render.width = box.width + (this._isFlippedX ? box.width * 2 : 0)
+      render.height = box.height + (this._isFlippedY ? box.height * 2 : 0)
+      
+      if (this.debugMode) {
+        console.log(`[RichText] 扩大 renderBounds: box=(${box.x},${box.y},${box.width},${box.height}), render=(${render.x},${render.y},${render.width},${render.height})`)
+      }
+    } else {
+      // 没有翻转，renderBounds = boxBounds
+      render.x = box.x
+      render.y = box.y
+      render.width = box.width
+      render.height = box.height
+    }
   }
   
   /**
