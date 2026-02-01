@@ -1033,13 +1033,24 @@ export class RichText extends UI {
       const startChar = lineIdx === start.lineIndex ? start.charIndex : 0
       const endChar = lineIdx === end.lineIndex ? end.charIndex : line.chars.length
       
+      // ✅ Figma 标准：计算行的基线位置
+      const maxFontSize = line.chars.length > 0
+        ? Math.max(...line.chars.map(c => c.style.fontSize!))
+        : this.fontSize
+      const ascent = maxFontSize * 0.85
+      const baseline = line.y + ascent
+      
       let x1 = 0
       let x2 = 0
       
       if (line.chars.length === 0) {
-        // 空行
+        // 空行：使用基础字号的高度
         x1 = 0
-        x2 = 10 // 最小宽度
+        x2 = 10
+        const emptyLineHeight = this.fontSize
+        const selectionY = baseline - this.fontSize * 0.85 + padding.top
+        ctx.fillRect(padding.left, selectionY, x2, emptyLineHeight)
+        continue
       } else if (startChar >= line.chars.length) {
         // 行尾
         const lastChar = line.chars[line.chars.length - 1]
@@ -1060,10 +1071,23 @@ export class RichText extends UI {
       }
       
       if (x2 > x1) {
-        // 字符位置已包含对齐偏移，只需加 padding
+        // ✅ Figma 标准：选区高度基于选区内字符的最大字号（而非整行高度）
+        // 计算选区内的最大字号
+        let selectionMaxFontSize = this.fontSize
+        for (let i = startChar; i < endChar && i < line.chars.length; i++) {
+          if (line.chars[i].style.fontSize! > selectionMaxFontSize) {
+            selectionMaxFontSize = line.chars[i].style.fontSize!
+          }
+        }
+        
+        // 选区的高度和位置
+        const selectionAscent = selectionMaxFontSize * 0.85
+        const selectionDescent = selectionMaxFontSize * 0.15
+        const selectionHeight = selectionAscent + selectionDescent
+        const selectionY = baseline - selectionAscent + padding.top
+        
         const finalX1 = x1 + padding.left
-        const finalY = line.y + padding.top
-        ctx.fillRect(finalX1, finalY, x2 - x1, line.height)
+        ctx.fillRect(finalX1, selectionY, x2 - x1, selectionHeight)
       }
     }
   }
@@ -1076,26 +1100,43 @@ export class RichText extends UI {
     // 获取 padding
     const padding = this._parsePadding(this.padding)
     
+    // 计算基线位置
+    const maxFontSize = line.chars.length > 0
+      ? Math.max(...line.chars.map(c => c.style.fontSize!))
+      : this.fontSize
+    const ascent = maxFontSize * 0.85
+    const baseline = line.y + ascent
+    
     let x = 0
+    let cursorFontSize = this.fontSize  // 光标高度基于当前位置的字号
+    
     if (line.chars.length === 0 || loc.charIndex === 0) {
       // 空行或行首
       x = loc.charIndex === 0 && line.chars.length > 0 ? line.chars[0].x : 0
+      cursorFontSize = line.chars.length > 0 ? line.chars[0].style.fontSize! : this.fontSize
     } else if (loc.charIndex >= line.chars.length) {
-      // 行尾
+      // 行尾：使用前一个字符的字号
       const lastChar = line.chars[line.chars.length - 1]
       const letterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
       x = lastChar.x + lastChar.width + letterSpacing
+      cursorFontSize = lastChar.style.fontSize!
     } else {
+      // 行中：使用当前位置字符的字号
       x = line.chars[loc.charIndex].x
+      cursorFontSize = line.chars[loc.charIndex].style.fontSize!
     }
     
-    // 字符位置已包含对齐偏移，只需加 padding
+    // ✅ Figma 标准：光标高度基于当前位置字符的字号
+    const cursorAscent = cursorFontSize * 0.85
+    const cursorDescent = cursorFontSize * 0.15
+    const cursorHeight = cursorAscent + cursorDescent
+    const cursorY = baseline - cursorAscent + padding.top
+    
     const finalX = x + padding.left
-    const finalY = line.y + padding.top
     
     ctx.globalAlpha = this._cursorOpacity
     ctx.fillStyle = this.cursorColor
-    ctx.fillRect(finalX, finalY, this.cursorWidth, line.height)
+    ctx.fillRect(finalX, cursorY, this.cursorWidth, cursorHeight)
   }
   
   // ============ 事件绑定 ============
