@@ -55,6 +55,32 @@ currentRichText = richtext
 // 获取编辑器实例
 const editor = app.editor
 
+// 获取面板元素（必须在绑定事件之前声明）
+const fontSizeInput = document.getElementById('fontSize') as HTMLInputElement
+const fontFamilySelect = document.getElementById('fontFamily') as HTMLSelectElement
+const fillInput = document.getElementById('fill') as HTMLInputElement
+const letterSpacingInput = document.getElementById('letterSpacing') as HTMLInputElement
+const lineHeightInput = document.getElementById('lineHeight') as HTMLInputElement
+const textAlignSelect = document.getElementById('textAlign') as HTMLSelectElement
+const textCaseSelect = document.getElementById('textCase') as HTMLSelectElement
+const paddingInput = document.getElementById('padding') as HTMLInputElement
+const autoWidthCheckbox = document.getElementById('autoWidth') as HTMLInputElement
+const autoHeightCheckbox = document.getElementById('autoHeight') as HTMLInputElement
+const fixedWidthInput = document.getElementById('fixedWidth') as HTMLInputElement
+const fixedHeightInput = document.getElementById('fixedHeight') as HTMLInputElement
+const textWrapSelect = document.getElementById('textWrap') as HTMLSelectElement
+const textOverflowSelect = document.getElementById('textOverflow') as HTMLSelectElement
+const btnBold = document.getElementById('btnBold')!
+const btnItalic = document.getElementById('btnItalic')!
+const btnUnderline = document.getElementById('btnUnderline')!
+const btnStrike = document.getElementById('btnStrike')!
+const btnSelectAll = document.getElementById('btnSelectAll')!
+const btnClearStyles = document.getElementById('btnClearStyles')!
+const btnAddText = document.getElementById('btnAddText')!
+const btnExportJSON = document.getElementById('btnExportJSON')!
+const debugModeCheckbox = document.getElementById('debugMode') as HTMLInputElement
+const selectionInfo = document.getElementById('selectionInfo')!
+
 // 通用：选中变化或进入内部编辑时，同步“当前 RichText”
 if (editor) {
   editor.on(EditorEvent.SELECT as any, () => {
@@ -177,32 +203,6 @@ setTimeout(() => {
   richtext.selectionStart = richtext.selectionEnd = 0
   richtext.exitEditing()
 }, 2000)
-
-// 获取面板元素
-const fontSizeInput = document.getElementById('fontSize') as HTMLInputElement
-const fontFamilySelect = document.getElementById('fontFamily') as HTMLSelectElement
-const fillInput = document.getElementById('fill') as HTMLInputElement
-const letterSpacingInput = document.getElementById('letterSpacing') as HTMLInputElement
-const lineHeightInput = document.getElementById('lineHeight') as HTMLInputElement
-const textAlignSelect = document.getElementById('textAlign') as HTMLSelectElement
-const textCaseSelect = document.getElementById('textCase') as HTMLSelectElement
-const paddingInput = document.getElementById('padding') as HTMLInputElement
-const autoWidthCheckbox = document.getElementById('autoWidth') as HTMLInputElement
-const autoHeightCheckbox = document.getElementById('autoHeight') as HTMLInputElement
-const fixedWidthInput = document.getElementById('fixedWidth') as HTMLInputElement
-const fixedHeightInput = document.getElementById('fixedHeight') as HTMLInputElement
-const textWrapSelect = document.getElementById('textWrap') as HTMLSelectElement
-const textOverflowSelect = document.getElementById('textOverflow') as HTMLSelectElement
-const btnBold = document.getElementById('btnBold')!
-const btnItalic = document.getElementById('btnItalic')!
-const btnUnderline = document.getElementById('btnUnderline')!
-const btnStrike = document.getElementById('btnStrike')!
-const btnSelectAll = document.getElementById('btnSelectAll')!
-const btnClearStyles = document.getElementById('btnClearStyles')!
-const btnAddText = document.getElementById('btnAddText')!
-const btnExportJSON = document.getElementById('btnExportJSON')!
-const debugModeCheckbox = document.getElementById('debugMode') as HTMLInputElement
-const selectionInfo = document.getElementById('selectionInfo')!
 
 // 根据当前选中的 RichText 更新面板控件
 function updatePanelFromRichText(rt: RichText | null): void {
