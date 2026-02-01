@@ -8,7 +8,9 @@ import type {
   IOverflow,
   ITextAlign,
   IVerticalAlign,
-  IUnitData
+  IUnitData,
+  IFill,
+  IColor
 } from 'leafer-ui'
 import { RichTextData } from './RichTextData'
 import type { 
@@ -49,7 +51,7 @@ export class RichText extends UI {
   declare public fontWeight: any
   
   @surfaceType(RICHTEXT_DEFAULTS.fill)
-  declare public fill: string
+  declare public fill: IFill
   
   @boundsType(RICHTEXT_DEFAULTS.italic)
   declare public italic: boolean
@@ -739,7 +741,7 @@ export class RichText extends UI {
         let displayChar = this._applyTextCase(char.char, style.textCase)
         
         // 文字
-        ctx.fillStyle = style.fill || '#000'
+        ctx.fillStyle = this._fillToString(style.fill)
         ctx.font = buildFontString(
           style.fontSize!,
           style.fontFamily!,
@@ -759,7 +761,7 @@ export class RichText extends UI {
       // 如果是自定义省略符（如 '...'），绘制在右下角
       if (typeof this.textOverflow === 'string' && this.textOverflow !== 'show' && this.textOverflow !== 'hide') {
         const { width, height } = this.__layout.boxBounds
-        ctx.fillStyle = this.fill || '#000'
+        ctx.fillStyle = this._fillToString(this.fill)
         ctx.font = buildFontString(this.fontSize, this.fontFamily, this.fontWeight, this.italic)
         ctx.fillText(this.textOverflow, width - 30, height - 5)
       }
@@ -858,6 +860,38 @@ export class RichText extends UI {
       }
     }
     return String(color)
+  }
+  
+  /**
+   * 将 IFill 转换为 CSS 颜色字符串（简化处理）
+   * 完整支持：纯色字符串
+   * 简化支持：纯色对象（ISolidPaint）
+   * 暂不支持：渐变、图像（降级为默认色）
+   */
+  private _fillToString(fill: IFill | undefined): string {
+    if (!fill) return '#000'
+    
+    // 字符串：直接使用
+    if (typeof fill === 'string') return fill
+    
+    // 数组：取第一个（简化处理）
+    if (Array.isArray(fill)) {
+      return this._fillToString(fill[0])
+    }
+    
+    // 对象：检查类型
+    if (typeof fill === 'object') {
+      // 纯色填充
+      if ('type' in fill && fill.type === 'solid' && 'value' in fill) {
+        return this._colorToString(fill.value) || '#000'
+      }
+      
+      // 渐变、图像等暂不支持（降级为默认色）
+      console.warn('[RichText] 暂不支持渐变/图像填充，降级为默认色')
+      return '#000'
+    }
+    
+    return '#000'
   }
   
   /**

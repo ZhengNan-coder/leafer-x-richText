@@ -11,7 +11,9 @@ import type {
   ITextWrap,
   IOverflow,
   ITextAlign,
-  IVerticalAlign
+  IVerticalAlign,
+  IFill,
+  IColor
 } from 'leafer-ui'
 
 // 重新导出类型供外部使用
@@ -33,7 +35,7 @@ export type {
  */
 export interface ICharStyle {
   // 基础样式
-  fill?: string
+  fill?: IFill  // 与 Leafer 对齐：支持纯色、渐变、图像
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
@@ -83,7 +85,7 @@ export interface IRichTextInputData extends IUIInputData {
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
-  fill?: string
+  fill?: IFill  // 与 Leafer 对齐
   italic?: boolean
   
   // 文本格式
@@ -142,7 +144,7 @@ export interface IRichTextData extends IUIData {
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
-  fill?: string
+  fill?: IFill  // 与 Leafer 对齐
   italic?: boolean
   
   // 文本格式
@@ -198,7 +200,7 @@ export interface IStyleRange {
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
-  fill?: string
+  fill?: IFill
   italic?: boolean
   
   // 文本格式
