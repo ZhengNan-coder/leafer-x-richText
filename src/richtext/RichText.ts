@@ -9,13 +9,11 @@ import type {
   ITextAlign,
   IVerticalAlign,
   IUnitData,
-  IFill,
-  IColor
+  IFill
 } from 'leafer-ui'
 import { RichTextData } from './RichTextData'
 import type { 
-  IRichTextInputData, 
-  IRichTextData, 
+  IRichTextInputData,
   ICharStyle, 
   ICharMetrics, 
   ILineMetrics, 
@@ -497,16 +495,23 @@ export class RichText extends UI {
         x += width + letterSpacing
       }
       
-      // 行高（可被字符级样式影响，取最大 fontSize）
+      // Figma 标准：行高基于行内最大字号
       const maxFontSize = chars.length > 0 
         ? Math.max(...chars.map(c => c.style.fontSize!))
         : this.fontSize
-      const lineHeight = this._parseLineHeight(this.lineHeight, maxFontSize)
       
-      this._lineMetrics.push({ chars, y, height: lineHeight })
+      // 计算行高（lineHeight 乘以最大字号）
+      const lineHeightValue = this._parseLineHeight(this.lineHeight, maxFontSize)
+      
+      // Figma 行为：lineHeight 包含了字符本身高度 + 上下间距
+      // lineHeight = fontSize * ratio (如 fontSize=20, ratio=1.5, lineHeight=30)
+      // 上下间距总和 = lineHeight - fontSize = 10
+      // 分配：上间距和下间距可以不对称，但这里简化为对称分配
+      
+      this._lineMetrics.push({ chars, y, height: lineHeightValue })
       
       // 段落间距（空行后添加）
-      y += lineHeight
+      y += lineHeightValue
       if (line.length === 0 && lineIdx < this._lines.length - 1) {
         y += this.paraSpacing
       }
@@ -745,11 +750,15 @@ export class RichText extends UI {
     for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
       const line = this._lineMetrics[lineIdx]
       
-      // 计算行的基线位置（所有字符共享同一基线）
+      // Figma 标准：计算行的统一基线位置（所有字符共享，无论字号大小）
+      // 基线位置 = 行顶部 + 行内最大字号的 ascent 部分
       const maxFontSize = line.chars.length > 0
         ? Math.max(...line.chars.map(c => c.style.fontSize!))
         : this.fontSize
-      const baseline = line.y + maxFontSize * 0.85  // 基线位置（约85%处）
+      
+      // 使用标准的字体度量：ascent 约占 85%
+      const ascent = maxFontSize * 0.85
+      const baseline = line.y + ascent  // 共享基线
       
       for (let charIdx = 0; charIdx < line.chars.length; charIdx++) {
         const char = line.chars[charIdx]
@@ -758,16 +767,22 @@ export class RichText extends UI {
         // 字符位置已在 _measureText 中计算好（包含对齐和两端对齐）
         const finalX = x + padding.left
         
-        // 基于字符自身字号计算基线偏移（让不同字号对齐底部）
-        const baselineOffset = (maxFontSize - style.fontSize!) * 0.85
-        const finalY = baseline + baselineOffset + padding.top
+        // ✅ Figma 标准：所有字符使用相同的基线，不做偏移
+        // 小字和大字都对齐在同一基线上，小字的顶部会比大字高
+        const finalY = baseline + padding.top
         
         ctx.save()
         
-        // 背景色
+        // 背景色（需要根据字符实际高度计算）
         if (style.textBackgroundColor) {
+          // 背景高度使用字符自身的字号计算
+          const charAscent = style.fontSize! * 0.85
+          const charDescent = style.fontSize! * 0.15
+          const bgY = baseline - charAscent  // 字符顶部
+          const bgHeight = charAscent + charDescent
+          
           ctx.fillStyle = style.textBackgroundColor
-          ctx.fillRect(finalX, line.y + padding.top, char.width, line.height)
+          ctx.fillRect(finalX, bgY + padding.top, char.width, bgHeight)
         }
         
         // 应用 textCase
@@ -823,6 +838,8 @@ export class RichText extends UI {
   
   /**
    * 绘制文本装饰线（下划线、删除线）
+   * @param y 基线位置
+   * @param style 字符样式
    */
   private _drawTextDecoration(
     ctx: CanvasRenderingContext2D, 
@@ -830,11 +847,11 @@ export class RichText extends UI {
     x: number, 
     y: number, 
     width: number, 
-    lineHeight: number
+    _lineHeight: number
   ): void {
     // 优先使用新的 textDecoration，兼容旧的 underline/linethrough
     let decoration = style.textDecoration
-    let decorationColor: string = this._colorToString(style.fill) || '#000'
+    let decorationColor: string = this._fillToString(style.fill)
     let decorationOffset = 0
     
     // 兼容旧属性
@@ -860,8 +877,9 @@ export class RichText extends UI {
     ctx.strokeStyle = decorationColor
     ctx.lineWidth = 1
     
-    // 下划线
+    // 下划线（基线下方）
     if (decoration === 'under' || decoration === 'under-delete') {
+      // Figma 标准：下划线在基线下方约 2px，可通过 offset 调整
       const underlineY = y + 2 + decorationOffset
       ctx.beginPath()
       ctx.moveTo(x, underlineY)
@@ -869,9 +887,11 @@ export class RichText extends UI {
       ctx.stroke()
     }
     
-    // 删除线
+    // 删除线（字符中部）
     if (decoration === 'delete' || decoration === 'under-delete') {
-      const deleteY = y - lineHeight * 0.3
+      // Figma 标准：删除线在字符高度的中部
+      // 中部 = 基线 - (fontSize * 0.35) 约为字符高度的中间位置
+      const deleteY = y - (style.fontSize! * 0.35)
       ctx.beginPath()
       ctx.moveTo(x, deleteY)
       ctx.lineTo(x + width, deleteY)
