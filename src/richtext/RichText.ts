@@ -289,25 +289,30 @@ export class RichText extends UI {
     const oldGraphemes = this._graphemes
     this._graphemes = graphemeSplit(text)
     
-    // ⚠️ 关键：在重新分行前，保存现有样式为线性格式
+    // ⚠️ 关键：在重新分行前，确保样式为线性格式
     // 避免换行导致样式丢失（行号/列号会变化）
     const hadStyles = this._styles.size > 0
-    let savedLinearStyles: Map<number, ICharStyle> | null = null
     
+    // 情况1：文本长度未变（只是宽度/换行规则变化）→ 保存现有样式
     if (hadStyles && oldGraphemes.length === this._graphemes.length) {
-      // 文本长度未变（只是换行），需要保存样式
-      savedLinearStyles = this._convertStylesToLinear()
+      // 只在没有 pendingLinearStyles 时才保存（避免覆盖已迁移的样式）
+      if (!this._pendingLinearStyles) {
+        this._pendingLinearStyles = this._convertStylesToLinear()
+      }
+    }
+    
+    // 情况2：没有 pendingLinearStyles，但有现有样式 → 转换以便换行计算
+    // （这种情况一般不会出现，因为文本变化时已经通过 _shiftStylesBeforeTextChange 设置了）
+    if (!this._pendingLinearStyles && hadStyles) {
+      this._pendingLinearStyles = this._convertStylesToLinear()
     }
     
     // 重新分行（可能改变行号/列号）
+    // _splitLinesWithWrap 会使用 _pendingLinearStyles 来获取字符样式
     this._lines = this._splitLines()
     
-    // 恢复样式
-    if (savedLinearStyles) {
-      this._pendingLinearStyles = savedLinearStyles
-      this._applyPendingStyles()
-    } else if (this._pendingLinearStyles) {
-      // 如果有待应用的线性样式，转换为 2D
+    // 应用样式（转换为新的 2D 坐标）
+    if (this._pendingLinearStyles) {
       this._applyPendingStyles()
     }
   }
@@ -317,11 +322,6 @@ export class RichText extends UI {
    */
   private _convertStylesToLinear(): Map<number, ICharStyle> {
     const linear = new Map<number, ICharStyle>()
-    
-    // 如果没有样式或没有分行数据，返回空 Map
-    if (this._styles.size === 0 || !this._lines.length) {
-      return linear
-    }
     
     for (const [lineIdx, lineMap] of this._styles.entries()) {
       for (const [charIdx, style] of lineMap.entries()) {
@@ -375,16 +375,14 @@ export class RichText extends UI {
     const padding = this._parsePadding(this.padding)
     const maxWidth = this.width - padding.left - padding.right
     
-    // 准备线性样式 Map（用于获取字符实际样式）
-    const linearStyles = this._pendingLinearStyles || this._convertStylesToLinear()
-    
-    let globalCharIndex = 0  // 全局字符索引（用于查找样式）
+    // 临时保存当前的线性字符索引（用于获取字符级样式）
+    let linearCharIndex = 0
     
     for (let paraIdx = 0; paraIdx < paragraphs.length; paraIdx++) {
       const para = paragraphs[paraIdx]
       if (para.length === 0) {
         lines.push([])
-        globalCharIndex++  // 换行符
+        linearCharIndex++  // 换行符
         continue
       }
       
@@ -398,26 +396,26 @@ export class RichText extends UI {
       
       for (let i = 0; i < para.length; i++) {
         const char = para[i]
-        const linearIdx = globalCharIndex + i
         
-        // ✅ 关键修复：使用字符的实际样式（包括字符级覆盖）估算宽度
-        const charStyle = linearStyles.get(linearIdx)
-        const actualFontSize = charStyle?.fontSize || this.fontSize
-        const actualFontFamily = charStyle?.fontFamily || this.fontFamily
-        const actualFontWeight = charStyle?.fontWeight || this.fontWeight
-        const actualItalic = charStyle?.italic !== undefined ? charStyle.italic : this.italic
-        const actualLetterSpacing = charStyle?.letterSpacing || this.letterSpacing
+        // ✅ 关键修复：使用字符实际样式的字号来估算宽度
+        const charStyle = this._getStyleAtLinearIndex(linearCharIndex)
+        const charFontSize = charStyle?.fontSize || this.fontSize
+        const charFontFamily = charStyle?.fontFamily || this.fontFamily
+        const charFontWeight = charStyle?.fontWeight || this.fontWeight
+        const charItalic = charStyle?.italic || this.italic
+        const charLetterSpacing = this._parseLetterSpacing(
+          charStyle?.letterSpacing || this.letterSpacing, 
+          charFontSize
+        )
         
         const charWidth = measureTextWidth(
           this._measureCtx,
           char,
-          actualFontSize,
-          actualFontFamily,
-          actualFontWeight,
-          actualItalic
+          charFontSize,
+          charFontFamily,
+          charFontWeight,
+          charItalic
         )
-        
-        const letterSpacing = this._parseLetterSpacing(actualLetterSpacing, actualFontSize)
         
         // 检查是否需要换行
         if (currentWidth + charWidth > maxWidth - indent && currentLine.length > 0) {
@@ -425,59 +423,86 @@ export class RichText extends UI {
             // 强制断词换行
             lines.push(currentLine)
             currentLine = [char]
-            currentWidth = charWidth + letterSpacing
+            currentWidth = charWidth + charLetterSpacing
           } else {
             // normal: 尝试在单词边界换行
             const lastSpaceIdx = this._findLastSpace(currentLine)
             if (lastSpaceIdx >= 0) {
               // 在空格处断行
               const beforeSpace = currentLine.slice(0, lastSpaceIdx)
-              lines.push(beforeSpace)
-              
-              // 剩余字符：空格后的部分 + 当前字符
               const afterSpace = currentLine.slice(lastSpaceIdx + 1)
+              lines.push(beforeSpace)
               currentLine = [...afterSpace, char]
-              
-              // 重新计算宽度（简化：逐个计算）
-              currentWidth = 0
-              for (let j = 0; j < currentLine.length; j++) {
-                const c = currentLine[j]
-                const originalIdx = j < afterSpace.length 
-                  ? (globalCharIndex + lastSpaceIdx + 1 + j)  // 来自 afterSpace
-                  : linearIdx  // 当前字符
-                
-                const style = linearStyles.get(originalIdx)
-                const fs = style?.fontSize || this.fontSize
-                const ff = style?.fontFamily || this.fontFamily
-                const fw = style?.fontWeight || this.fontWeight
-                const it = style?.italic !== undefined ? style.italic : this.italic
-                const ls = style?.letterSpacing || this.letterSpacing
-                
-                const w = measureTextWidth(this._measureCtx, c, fs, ff, fw, it)
-                const spacing = this._parseLetterSpacing(ls, fs)
-                currentWidth += w + spacing
+              // 重新计算当前行宽度
+              currentWidth = charWidth + charLetterSpacing
+              for (let j = 0; j < afterSpace.length; j++) {
+                const afterCharIdx = linearCharIndex - afterSpace.length + j
+                const afterCharStyle = this._getStyleAtLinearIndex(afterCharIdx)
+                const afterCharWidth = this._estimateCharWidthWithStyle(afterSpace[j], afterCharStyle)
+                currentWidth += afterCharWidth
               }
             } else {
               // 没有空格，强制断行
               lines.push(currentLine)
               currentLine = [char]
-              currentWidth = charWidth + letterSpacing
+              currentWidth = charWidth + charLetterSpacing
             }
           }
         } else {
           currentLine.push(char)
-          currentWidth += charWidth + letterSpacing
+          currentWidth += charWidth + charLetterSpacing
         }
+        
+        linearCharIndex++
       }
       
       if (currentLine.length > 0) {
         lines.push(currentLine)
       }
       
-      globalCharIndex += para.length + 1  // +1 for newline
+      linearCharIndex++  // 换行符
     }
     
     return lines.length ? lines : [[]]
+  }
+  
+  /**
+   * 获取线性索引位置的字符样式（用于换行计算）
+   */
+  private _getStyleAtLinearIndex(linearIndex: number): ICharStyle | null {
+    // 优先从 pendingLinearStyles 获取（这是线性格式的样式）
+    if (this._pendingLinearStyles?.has(linearIndex)) {
+      return this._pendingLinearStyles.get(linearIndex)!
+    }
+    
+    // 如果没有 pendingLinearStyles，返回 null，使用基础样式
+    return null
+  }
+  
+  /**
+   * 使用指定样式估算字符宽度
+   */
+  private _estimateCharWidthWithStyle(char: string, style: ICharStyle | null): number {
+    const fontSize = style?.fontSize || this.fontSize
+    const fontFamily = style?.fontFamily || this.fontFamily
+    const fontWeight = style?.fontWeight || this.fontWeight
+    const italic = style?.italic || this.italic
+    
+    const width = measureTextWidth(
+      this._measureCtx,
+      char,
+      fontSize,
+      fontFamily,
+      fontWeight,
+      italic
+    )
+    
+    const letterSpacing = this._parseLetterSpacing(
+      style?.letterSpacing || this.letterSpacing,
+      fontSize
+    )
+    
+    return width + letterSpacing
   }
   
   /**
@@ -675,22 +700,19 @@ export class RichText extends UI {
       this._updateGraphemes()
     }
     
-    // 先将样式转换为线性格式（避免重新分行后错位）
-    const linearStyles = this._convertStylesToLinear()
-    
-    // 应用新样式到线性格式
     for (let i = this.selectionStart; i < this.selectionEnd; i++) {
-      const existing = linearStyles.get(i) || {}
-      linearStyles.set(i, { ...existing, ...style })
+      const { lineIndex, charIndex } = this._linearToLocation(i)
+      
+      if (!this._styles.has(lineIndex)) {
+        this._styles.set(lineIndex, new Map())
+      }
+      
+      const lineStyles = this._styles.get(lineIndex)!
+      const existing = lineStyles.get(charIndex) || {}
+      lineStyles.set(charIndex, { ...existing, ...style })
     }
     
-    // 保存为待应用样式
-    this._pendingLinearStyles = linearStyles
-    
-    // ⚠️ 关键：重新分行（字号变化可能导致需要换行）
-    // 这会触发 _updateGraphemes() → _splitLines() → _applyPendingStyles()
-    this._updateGraphemes()
-    
+    this._measureText()
     this.forceUpdate()
     this.forceRender()
   }
@@ -1905,6 +1927,7 @@ export class RichText extends UI {
    * 只修改指定的样式属性，保留其他字符级样式
    */
   public setFullTextStyles(styleObj: Partial<ICharStyle>): void {
+    this._updateGraphemes()
     this._recordSnapshot()
 
     // 更新基础样式属性
@@ -1917,27 +1940,24 @@ export class RichText extends UI {
     if (styleObj.textDecoration !== undefined) this.textDecoration = styleObj.textDecoration
     if (styleObj.letterSpacing !== undefined) this.letterSpacing = styleObj.letterSpacing
 
-    // 确保文本已初始化
-    if (!this._graphemes.length) {
-      this._updateGraphemes()
-    }
-
-    // 先将样式转换为线性格式
-    const linearStyles = this._convertStylesToLinear()
-
-    // 遍历所有字符，只更新 styleObj 中指定的属性
+    // 遍历所有字符，只更新 styleObj 中指定的属性，保留其他样式
     const len = this._graphemes.length
     for (let i = 0; i < len; i++) {
-      const existing = linearStyles.get(i) || {}
-      linearStyles.set(i, { ...existing, ...styleObj })
+      const loc = this._linearToLocation(i)
+      
+      // 确保 Map 结构存在
+      if (!this._styles.has(loc.lineIndex)) {
+        this._styles.set(loc.lineIndex, new Map())
+      }
+      
+      // 获取现有样式，合并新样式
+      const existing = this._styles.get(loc.lineIndex)!.get(loc.charIndex) || {}
+      const merged = { ...existing, ...styleObj }
+      
+      this._styles.get(loc.lineIndex)!.set(loc.charIndex, merged)
     }
 
-    // 保存为待应用样式
-    this._pendingLinearStyles = linearStyles
-
-    // ⚠️ 关键：重新分行（字号变化可能导致需要换行）
-    this._updateGraphemes()
-
+    this._measureText()
     this.forceUpdate()
     this.forceRender()
   }

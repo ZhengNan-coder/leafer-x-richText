@@ -444,31 +444,33 @@ btnAddText.addEventListener('click', () => {
   const newText = new RichText({
     x: 100,
     y: 450,
-    text: '固定宽度测试：ABCD EFGH IJKL MNOP QRST',  // 短文本，方便测试字号变化
-    fontSize: 16,
+    text: '测试固定宽度换行：这是测试文本',
+    fontSize: 20,
     fill: '#666',
     editable: true,
     
-    // 固定宽度，自动高度
+    // 固定宽度，自动高度（测试编辑时换行）
     width: 300,
     autoWidth: false,  // 固定宽度
     autoHeight: true,  // 高度自动
     
     // 段落属性
-    lineHeight: 2.0,
+    lineHeight: 1.8,
     textAlign: 'left',
     padding: 15,
     textWrap: 'normal',  // 启用自动换行
     
-    // 字符级样式（设置一些字为较大字号）
+    // 字符级样式（测试不同字号的换行）
     styleRanges: [
-      { start: 0, end: 4, fontSize: 20, fontWeight: 'bold', fill: '#ff6600' }
+      { start: 0, end: 2, fontSize: 32, fontWeight: 'bold', fill: '#ff6600' },  // "测试" 大字号
+      { start: 9, end: 11, fontSize: 28, italic: true, fill: '#0088ff' }  // "测试" 大字号
     ],
     onEditingEntered: () => updateSelectionInfo(),
     onEditingExited: () => updateSelectionInfo()
   })
   app.tree.add(newText)
-  console.log('💡 测试提示：选中新文本，增大字号，观察是否自动换行')
+  console.log('✅ 新增文本 - 测试固定宽度下大字号的换行')
+  console.log('提示：双击进入编辑，在"测试"后面输入更多大字号文字，应该会自动换行')
   // 选中新文本，使右侧面板立即作用于它
   if (editor) editor.select(newText as any)
   setCurrentRichText(newText)
