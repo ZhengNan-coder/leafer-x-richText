@@ -10,6 +10,9 @@ export class RichTextEditor extends InnerEditor {
   
   declare public editTarget: RichText
   
+  // 保存 Editor 配置（用于恢复）
+  private _savedEditorConfig: any
+  
   /**
    * 加载时（双击进入编辑）
    */
@@ -21,6 +24,12 @@ export class RichTextEditor extends InnerEditor {
     if (!richtext.isEditing) {
       richtext.enterEditing()
     }
+    
+    // ✅ 禁用 Editor 的键盘快捷键（防止方向键移动元素）
+    this._savedEditorConfig = {
+      hotkey: editor.config.hotkey
+    }
+    editor.config.hotkey = false  // 临时禁用所有快捷键
     
     // 重要：让 RichText 能接收 pointer 事件
     // Editor 在 innerEditing 时会停止事件传播，需要手动转发
@@ -53,7 +62,15 @@ export class RichTextEditor extends InnerEditor {
         if (richtext.isEditing) {
           richtext._handlePointerUp(e)
         }
-      })
+      }),
+      
+      // ✅ 拦截键盘事件，防止 Editor 处理（避免方向键移动元素）
+      editor.app.on_('key.down' as any, (e: any) => {
+        if (richtext.isEditing) {
+          // 在编辑状态下，阻止键盘事件传递到 Editor
+          e.stopPropagation()
+        }
+      }, { capture: true })  // 使用捕获阶段拦截
     ]
   }
   
@@ -69,10 +86,17 @@ export class RichTextEditor extends InnerEditor {
    */
   public onUnload(): void {
     const richtext = this.editTarget
+    const { editor } = this
     
     // 退出 RichText 的编辑模式
     if (richtext.isEditing) {
       richtext.exitEditing()
+    }
+    
+    // ✅ 恢复 Editor 的键盘快捷键配置
+    if (this._savedEditorConfig) {
+      editor.config.hotkey = this._savedEditorConfig.hotkey
+      this._savedEditorConfig = null
     }
     
     // 清理事件监听

@@ -175,6 +175,9 @@ export class RichText extends UI {
   // 调试模式：显示基线和行框
   public debugMode = false
   
+  // 保存原始 draggable 状态（进入编辑时临时禁用）
+  private _savedDraggable: boolean | undefined
+  
   constructor(data?: IRichTextInputData) {
     super(data)
     
@@ -1219,6 +1222,20 @@ export class RichText extends UI {
         this._checkTripleTap(e)
       }
     })
+    
+    // ✅ 关键：在编辑状态下拦截键盘事件，防止传递到 Editor
+    this.on('key.down', (e: any) => {
+      if (this.isEditing) {
+        // 阻止事件冒泡到 Editor（防止方向键移动元素）
+        e.stopPropagation()
+      }
+    })
+    
+    this.on('key.up', (e: any) => {
+      if (this.isEditing) {
+        e.stopPropagation()
+      }
+    })
   }
   
   /**
@@ -1312,6 +1329,11 @@ export class RichText extends UI {
     
     this.isEditing = true
     
+    // ✅ 关键：进入编辑时禁用元素拖拽，避免键盘事件移动元素
+    // 保存原始 draggable 状态
+    this._savedDraggable = this.draggable
+    this.draggable = false
+    
     // 设置光标位置（优先使用参数，其次使用待定位置）
     const targetPosition = cursorPosition !== undefined 
       ? cursorPosition 
@@ -1348,6 +1370,12 @@ export class RichText extends UI {
     if (!this.isEditing) return
     
     this.isEditing = false
+    
+    // ✅ 恢复原始 draggable 状态
+    if (this._savedDraggable !== undefined) {
+      this.draggable = this._savedDraggable
+      this._savedDraggable = undefined
+    }
     this._destroyHiddenTextarea()
     this._stopCursorBlink()
     this.selectionStart = this.selectionEnd = 0
