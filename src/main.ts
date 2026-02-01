@@ -444,8 +444,8 @@ btnAddText.addEventListener('click', () => {
   const newText = new RichText({
     x: 100,
     y: 450,
-    text: '固定宽度文本：超过宽度会自动换行！这是一段很长的文本，用来测试固定宽度下的自动换行效果。',
-    fontSize: 20,
+    text: '固定宽度测试：ABCD EFGH IJKL MNOP QRST',  // 短文本，方便测试字号变化
+    fontSize: 16,
     fill: '#666',
     editable: true,
     
@@ -455,20 +455,20 @@ btnAddText.addEventListener('click', () => {
     autoHeight: true,  // 高度自动
     
     // 段落属性
-    lineHeight: 1.8,
+    lineHeight: 2.0,
     textAlign: 'left',
     padding: 15,
     textWrap: 'normal',  // 启用自动换行
     
-    // 字符级样式
+    // 字符级样式（设置一些字为较大字号）
     styleRanges: [
-      { start: 0, end: 4, fontSize: 24, fontWeight: 'bold', fill: '#ff6600' },
-      { start: 10, end: 14, fontSize: 22, italic: true, fill: '#0088ff', textDecoration: 'under' }
+      { start: 0, end: 4, fontSize: 20, fontWeight: 'bold', fill: '#ff6600' }
     ],
     onEditingEntered: () => updateSelectionInfo(),
     onEditingExited: () => updateSelectionInfo()
   })
   app.tree.add(newText)
+  console.log('💡 测试提示：选中新文本，增大字号，观察是否自动换行')
   // 选中新文本，使右侧面板立即作用于它
   if (editor) editor.select(newText as any)
   setCurrentRichText(newText)
