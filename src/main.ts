@@ -88,32 +88,38 @@ if (editor) {
 setTimeout(() => {
   richtext.enterEditing()
   
-  // "欢迎使用" - 加粗红色大字
+  // 测试混合字号基线对齐
+  // "欢迎使用" - 大字号（验证基线对齐）
   richtext.selectionStart = 0
   richtext.selectionEnd = 4
   richtext.setSelectionStyles({
-    fontSize: 28,
+    fontSize: 48,  // 大字号
     fontWeight: 'bold',
     fill: '#ff0000'
   })
   
-  // "RichText" - 蓝色斜体
+  // "RichText" - 小字号（应该与大字在同一基线上）
   richtext.selectionStart = 5
   richtext.selectionEnd = 13
   richtext.setSelectionStyles({
+    fontSize: 16,  // 小字号
     fill: '#0066ff',
-    italic: true,
-    textCase: 'upper'
+    italic: true
   })
   
-  // "自动换行" - 绿色下划线
-  richtext.selectionStart = 30
-  richtext.selectionEnd = 34
+  // 第二行 - 中等字号
+  richtext.selectionStart = 14
+  richtext.selectionEnd = 20
   richtext.setSelectionStyles({
+    fontSize: 32,
     textDecoration: 'under',
     fill: '#00aa00',
     fontWeight: 'bold'
   })
+  
+  console.log('✅ 样式设置完成 - 测试基线对齐')
+  console.log('第一行：48px 大字 + 16px 小字 应该在同一基线上')
+  console.log('lineHeight: 1.8，文本应该垂直居中于行高')
   
   // 退出编辑显示效果
   richtext.selectionStart = richtext.selectionEnd = 0
@@ -143,6 +149,7 @@ const btnSelectAll = document.getElementById('btnSelectAll')!
 const btnClearStyles = document.getElementById('btnClearStyles')!
 const btnAddText = document.getElementById('btnAddText')!
 const btnExportJSON = document.getElementById('btnExportJSON')!
+const debugModeCheckbox = document.getElementById('debugMode') as HTMLInputElement
 const selectionInfo = document.getElementById('selectionInfo')!
 
 // 根据当前选中的 RichText 更新面板控件
@@ -337,6 +344,14 @@ textOverflowSelect.addEventListener('change', () => {
   if (!rt) return
   rt.textOverflow = textOverflowSelect.value
   refocusTextarea()
+})
+
+// 调试模式切换
+debugModeCheckbox.addEventListener('change', () => {
+  const rt = getCurrentRichText()
+  if (!rt) return
+  rt.debugMode = debugModeCheckbox.checked
+  rt.forceRender()
 })
 
 // 自动宽度控制
