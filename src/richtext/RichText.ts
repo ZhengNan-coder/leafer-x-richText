@@ -1,5 +1,5 @@
 // RichText 主类 - 继承 UI，完全自定义
-import { UI, registerUI, dataProcessor, boundsType, surfaceType, dataType } from '@leafer-ui/core'
+import { UI, registerUI, dataProcessor, boundsType, surfaceType, dataType } from 'leafer-ui'
 import type { 
   ILeaferCanvas,
   ITextCase,
@@ -9,7 +9,7 @@ import type {
   ITextAlign,
   IVerticalAlign,
   IUnitData
-} from '@leafer-ui/interface'
+} from 'leafer-ui'
 import { RichTextData } from './RichTextData'
 import type { 
   IRichTextInputData, 

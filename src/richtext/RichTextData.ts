@@ -1,5 +1,5 @@
 // RichText 数据处理类
-import { UIData } from '@leafer-ui/core'
+import { UIData } from 'leafer-ui'
 import type { IRichTextData, IUnitData } from './types'
 
 export class RichTextData extends UIData implements IRichTextData {

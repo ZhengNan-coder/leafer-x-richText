@@ -12,7 +12,7 @@ import type {
   IOverflow,
   ITextAlign,
   IVerticalAlign
-} from '@leafer-ui/interface'
+} from 'leafer-ui'
 
 // 重新导出类型供外部使用
 export type {
