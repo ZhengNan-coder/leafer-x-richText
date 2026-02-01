@@ -81,7 +81,7 @@ if (editor) {
   })
   
   // ✅ 监听缩放事件：拖动边框调整尺寸时，自动切换为固定尺寸模式
-  editor.on(EditorEvent.SCALE as any, (e: EditorScaleEvent) => {
+  editor.on(EditorScaleEvent.SCALE as any, (e: any) => {
     const list = editor.list
     if (!list?.length) return
     
