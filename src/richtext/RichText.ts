@@ -285,13 +285,46 @@ export class RichText extends UI {
   
   private _updateGraphemes(): void {
     const text = String(this.text || '')
+    const oldGraphemes = this._graphemes
     this._graphemes = graphemeSplit(text)
+    
+    // ⚠️ 关键：在重新分行前，保存现有样式为线性格式
+    // 避免换行导致样式丢失（行号/列号会变化）
+    const hadStyles = this._styles.size > 0
+    let savedLinearStyles: Map<number, ICharStyle> | null = null
+    
+    if (hadStyles && oldGraphemes.length === this._graphemes.length) {
+      // 文本长度未变（只是换行），需要保存样式
+      savedLinearStyles = this._convertStylesToLinear()
+    }
+    
+    // 重新分行（可能改变行号/列号）
     this._lines = this._splitLines()
     
-    // 如果有待应用的线性样式，转换为 2D
-    if (this._pendingLinearStyles) {
+    // 恢复样式
+    if (savedLinearStyles) {
+      this._pendingLinearStyles = savedLinearStyles
+      this._applyPendingStyles()
+    } else if (this._pendingLinearStyles) {
+      // 如果有待应用的线性样式，转换为 2D
       this._applyPendingStyles()
     }
+  }
+  
+  /**
+   * 将 2D 样式 Map 转换为线性样式 Map（用于保存/恢复）
+   */
+  private _convertStylesToLinear(): Map<number, ICharStyle> {
+    const linear = new Map<number, ICharStyle>()
+    
+    for (const [lineIdx, lineMap] of this._styles.entries()) {
+      for (const [charIdx, style] of lineMap.entries()) {
+        const linearIndex = this._locationToLinear(lineIdx, charIdx)
+        linear.set(linearIndex, style)
+      }
+    }
+    
+    return linear
   }
   
   private _splitLines(): string[][] {
