@@ -228,16 +228,27 @@ export class RichText extends UI {
     const computed = this._getTextBounds()
     
     // ✅ 支持负宽高：保存翻转标记，使用绝对值计算
+    const wasFlippedX = this._isFlippedX
+    const wasFlippedY = this._isFlippedY
     const newFlippedX = !this.autoWidth && this.width < 0
     const newFlippedY = !this.autoHeight && this.height < 0
     
+    const flipChanged = wasFlippedX !== newFlippedX || wasFlippedY !== newFlippedY
+    
     // 调试：输出翻转状态变化
-    if (this.debugMode && (newFlippedX !== this._isFlippedX || newFlippedY !== this._isFlippedY)) {
-      console.log(`[RichText] 翻转状态变化: FlipX ${this._isFlippedX} → ${newFlippedX}, FlipY ${this._isFlippedY} → ${newFlippedY}, width=${this.width}`)
+    if (this.debugMode && flipChanged) {
+      console.log(`[RichText] 翻转状态变化: FlipX ${wasFlippedX} → ${newFlippedX}, FlipY ${wasFlippedY} → ${newFlippedY}, width=${this.width}, height=${this.height}`)
     }
     
     this._isFlippedX = newFlippedX
     this._isFlippedY = newFlippedY
+    
+    // ✅ 翻转状态改变时，强制全局重绘（清除残影）
+    if (flipChanged && this.leafer) {
+      // 通知 Leafer 整个元素需要重绘（包括翻转前的旧位置）
+      this.__layout.renderChanged = true
+      this.forceUpdate()
+    }
     
     // 宽度：autoWidth 时使用计算值，否则使用绝对值
     let width = this.autoWidth || !this.width || this.width === 0
@@ -267,12 +278,43 @@ export class RichText extends UI {
   }
   
   /**
+   * 更新渲染边界（扩大以支持翻转）
+   * Leafer 会调用此方法来决定脏矩形范围
+   */
+  __updateRenderBounds(): void {
+    super.__updateRenderBounds?.()
+    
+    const box = this.__layout.boxBounds
+    const render = this.__layout.renderBounds
+    
+    // ✅ 关键修复：翻转时扩大渲染边界，确保旧内容被清除
+    if (this._isFlippedX || this._isFlippedY) {
+      // 翻转时，内容可能渲染在负坐标区域
+      // 扩大 renderBounds 以包含翻转前后的所有位置
+      const expandX = this._isFlippedX ? box.width : 0
+      const expandY = this._isFlippedY ? box.height : 0
+      
+      render.x = box.x - expandX
+      render.y = box.y - expandY
+      render.width = box.width + expandX
+      render.height = box.height + expandY
+    } else {
+      // 正常情况：renderBounds = boxBounds
+      render.x = box.x
+      render.y = box.y
+      render.width = box.width
+      render.height = box.height
+    }
+  }
+  
+  /**
    * 绘制碰撞路径（必须实现）
    */
   __drawHitPath(hitCanvas: ILeaferCanvas): void {
     const { context } = hitCanvas
     const { x, y, width, height } = this.__layout.boxBounds
     
+    // boxBounds 已考虑翻转（x/y 可能为负），直接使用
     context.beginPath()
     context.rect(x, y, width, height)
   }
