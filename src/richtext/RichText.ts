@@ -228,8 +228,16 @@ export class RichText extends UI {
     const computed = this._getTextBounds()
     
     // ✅ 支持负宽高：保存翻转标记，使用绝对值计算
-    this._isFlippedX = !this.autoWidth && this.width < 0
-    this._isFlippedY = !this.autoHeight && this.height < 0
+    const newFlippedX = !this.autoWidth && this.width < 0
+    const newFlippedY = !this.autoHeight && this.height < 0
+    
+    // 调试：输出翻转状态变化
+    if (this.debugMode && (newFlippedX !== this._isFlippedX || newFlippedY !== this._isFlippedY)) {
+      console.log(`[RichText] 翻转状态变化: FlipX ${this._isFlippedX} → ${newFlippedX}, FlipY ${this._isFlippedY} → ${newFlippedY}, width=${this.width}`)
+    }
+    
+    this._isFlippedX = newFlippedX
+    this._isFlippedY = newFlippedY
     
     // 宽度：autoWidth 时使用计算值，否则使用绝对值
     let width = this.autoWidth || !this.width || this.width === 0
@@ -277,21 +285,14 @@ export class RichText extends UI {
     
     ctx.save()
     
-    // ✅ Figma 标准：支持负宽高翻转
-    if (this._isFlippedX || this._isFlippedY) {
-      const { width, height } = this.__layout.boxBounds
-      
-      if (this._isFlippedX) {
-        // 水平翻转：scaleX(-1) + translateX
-        ctx.scale(-1, 1)
-        ctx.translate(-width, 0)
-      }
-      
-      if (this._isFlippedY) {
-        // 垂直翻转：scaleY(-1) + translateY
-        ctx.scale(1, -1)
-        ctx.translate(0, -height)
-      }
+    // ✅ 关键理解：Leafer 的布局系统已经自动处理了负宽高
+    // __layout.boxBounds 始终是正值（绝对值）
+    // 元素的 transform 矩阵中已包含翻转（scaleX/scaleY 为负）
+    // 所以我们只需要按正常逻辑绘制，不要手动翻转！
+    
+    // 调试：输出状态
+    if (this.debugMode) {
+      console.log(`[RichText Draw] width=${this.width}, boxBounds.width=${this.__layout.boxBounds.width}, flipX=${this._isFlippedX}, flipY=${this._isFlippedY}`)
     }
     
     // 1. 绘制选区背景
@@ -783,26 +784,19 @@ export class RichText extends UI {
   private _pointerToIndex(x: number, y: number): number {
     if (!this._lineMetrics.length) return 0
     
-    // ✅ 翻转坐标变换（Figma 标准）
-    let adjustedX = x
-    let adjustedY = y
+    // ✅ 关键：Leafer 的 getInnerPoint() 已经考虑了元素的 transform
+    // 包括负宽高导致的翻转（scaleX/scaleY），所以我们不需要手动翻转坐标
+    // 直接使用传入的 x, y 即可
     
-    if (this._isFlippedX) {
-      // 水平翻转：x 坐标镜像
-      const { width } = this.__layout.boxBounds
-      adjustedX = width - x
-    }
-    
-    if (this._isFlippedY) {
-      // 垂直翻转：y 坐标镜像
-      const { height } = this.__layout.boxBounds
-      adjustedY = height - y
+    // 调试：输出点击坐标
+    if (this.debugMode) {
+      console.log(`[RichText] _pointerToIndex: x=${x}, y=${y}, flipX=${this._isFlippedX}`)
     }
     
     // 获取 padding
     const padding = this._parsePadding(this.padding)
-    adjustedX -= padding.left
-    adjustedY -= padding.top
+    const adjustedX = x - padding.left
+    const adjustedY = y - padding.top
     
     // 找到对应的行
     let lineIndex = 0
