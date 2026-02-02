@@ -8,6 +8,7 @@ import type {
   IOverflow,
   ITextAlign,
   IVerticalAlign,
+  IAxis,
   IUnitData,
   IFill
 } from 'leafer-ui'
@@ -154,6 +155,10 @@ export class RichText extends UI {
   private _inComposition = false
   private _measureCanvas: HTMLCanvasElement
   private _measureCtx: CanvasRenderingContext2D
+  private _lastScaleSignX = 1
+  private _lastScaleSignY = 1
+  private _needsFlipRenderBounds = false
+  private _lastWorldRenderBounds: { x: number; y: number; width: number; height: number } | null = null
   
   // 选区锚点（用于 Shift 扩展选区）
   private _selectionAnchor: number | null = null
@@ -176,11 +181,7 @@ export class RichText extends UI {
   public debugMode = false
   
   // 保存原始 draggable 状态（进入编辑时临时禁用）
-  private _savedDraggable: any
-  
-  // 翻转标记（width/height 为负时）
-  private _isFlippedX = false
-  private _isFlippedY = false
+  private _savedDraggable: boolean | IAxis | undefined
   
   constructor(data?: IRichTextInputData) {
     super(data)
@@ -227,27 +228,15 @@ export class RichText extends UI {
     const box = this.__layout.boxBounds
     const computed = this._getTextBounds()
     
-    // ✅ 支持负宽高：保存翻转标记，使用绝对值计算
-    const newFlippedX = !this.autoWidth && this.width < 0
-    const newFlippedY = !this.autoHeight && this.height < 0
-    
-    // 调试：输出翻转状态变化
-    if (this.debugMode && (newFlippedX !== this._isFlippedX || newFlippedY !== this._isFlippedY)) {
-      console.log(`[RichText] 翻转状态变化: FlipX ${this._isFlippedX} → ${newFlippedX}, FlipY ${this._isFlippedY} → ${newFlippedY}, width=${this.width}, height=${this.height}`)
-    }
-    
-    this._isFlippedX = newFlippedX
-    this._isFlippedY = newFlippedY
-    
-    // 宽度：autoWidth 时使用计算值，否则使用绝对值
-    let width = this.autoWidth || !this.width || this.width === 0
+    // 宽度：autoWidth 时使用计算值，否则优先使用设置值
+    let width = this.autoWidth || !this.width || this.width <= 0
       ? computed.width
-      : Math.abs(this.width)  // 使用绝对值
+      : Math.abs(this.width)
     
-    // 高度：autoHeight 时使用计算值，否则使用绝对值
-    let height = this.autoHeight || !this.height || this.height === 0
+    // 高度：autoHeight 时使用计算值，否则优先使用设置值
+    let height = this.autoHeight || !this.height || this.height <= 0
       ? computed.height
-      : Math.abs(this.height)  // 使用绝对值
+      : Math.abs(this.height)
     
     // ✅ 关键：自动宽高模式下，实时更新 width/height 属性值
     // 这样切换为固定宽高时，值不会丢失
@@ -263,7 +252,191 @@ export class RichText extends UI {
     box.width = width
     box.height = height
     
+    this._updateFlipRenderFlag()
     this._isUpdatingBounds = false
+  }
+
+  // 当用户拖拽改变尺寸时，自动尺寸应切换为固定尺寸
+  __scaleResize(scaleX: number, scaleY: number): void {
+    if (this.autoWidth && scaleX !== 1) this.autoWidth = false
+    if (this.autoHeight && scaleY !== 1) this.autoHeight = false
+    ;(UI as any).prototype.__scaleResize.call(this, scaleX, scaleY)
+  }
+
+  /**
+   * 更新翻转状态（用于扩展渲染边界，避免翻转残影）
+   */
+  private _updateFlipRenderFlag(): void {
+    const signX = (this.scaleX ?? 1) < 0 ? -1 : 1
+    const signY = (this.scaleY ?? 1) < 0 ? -1 : 1
+    
+    if (signX !== this._lastScaleSignX || signY !== this._lastScaleSignY) {
+      this._needsFlipRenderBounds = true
+      this._lastScaleSignX = signX
+      this._lastScaleSignY = signY
+      this.__layout.renderChange()
+    }
+  }
+
+  /**
+   * 更新渲染边界（扩展翻转时的旧区域，避免残影）
+   */
+  __updateRenderBounds(): void {
+    const { renderBounds, boxBounds } = this.__layout
+    if (!renderBounds) return
+    
+    const baseBounds = this.textOverflow === 'show'
+      ? this._getContentRenderBounds()
+      : boxBounds
+    
+    renderBounds.x = baseBounds.x
+    renderBounds.y = baseBounds.y
+    renderBounds.width = baseBounds.width
+    renderBounds.height = baseBounds.height
+    
+    this._updateFlipRenderFlag()
+    
+    if (this._needsFlipRenderBounds && this._lastWorldRenderBounds) {
+      const worldMatrix = (this.worldTransform || (this as any).__world) as any
+      const lastLocal = this._transformBoundsToLocal(this._lastWorldRenderBounds, worldMatrix)
+      
+      const minX = Math.min(renderBounds.x, lastLocal.x)
+      const minY = Math.min(renderBounds.y, lastLocal.y)
+      const maxX = Math.max(renderBounds.x + renderBounds.width, lastLocal.x + lastLocal.width)
+      const maxY = Math.max(renderBounds.y + renderBounds.height, lastLocal.y + lastLocal.height)
+      
+      renderBounds.x = minX - 1
+      renderBounds.y = minY - 1
+      renderBounds.width = (maxX - minX) + 2
+      renderBounds.height = (maxY - minY) + 2
+      
+      this._needsFlipRenderBounds = false
+    }
+    
+    const worldMatrix = (this.worldTransform || (this as any).__world) as any
+    this._lastWorldRenderBounds = this._transformBounds(renderBounds, worldMatrix)
+  }
+
+  private _getContentRenderBounds(): { x: number; y: number; width: number; height: number } {
+    const padding = this._parsePadding(this.padding)
+    
+    if (!this._lineMetrics.length) {
+      return {
+        x: 0,
+        y: 0,
+        width: (this.width || 0) + padding.left + padding.right,
+        height: (this.height || 0) + padding.top + padding.bottom
+      }
+    }
+    
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    
+    for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
+      const line = this._lineMetrics[lineIdx]
+      if (!line.chars.length) {
+        minY = Math.min(minY, line.y)
+        maxY = Math.max(maxY, line.y + line.height)
+        continue
+      }
+      
+      const firstChar = line.chars[0]
+      const lastChar = line.chars[line.chars.length - 1]
+      const lastLetterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
+      
+      minX = Math.min(minX, firstChar.x)
+      maxX = Math.max(maxX, lastChar.x + lastChar.width + lastLetterSpacing)
+      minY = Math.min(minY, line.y)
+      maxY = Math.max(maxY, line.y + line.height)
+    }
+    
+    if (!isFinite(minX) || !isFinite(maxX)) {
+      minX = 0
+      maxX = 0
+    }
+    if (!isFinite(minY) || !isFinite(maxY)) {
+      minY = 0
+      maxY = 0
+    }
+    
+    return {
+      x: minX + padding.left,
+      y: minY + padding.top,
+      width: (maxX - minX) + padding.left + padding.right,
+      height: (maxY - minY) + padding.top + padding.bottom
+    }
+  }
+
+  private _transformBounds(bounds: { x: number; y: number; width: number; height: number }, matrix: any): { x: number; y: number; width: number; height: number } {
+    if (!matrix) return { ...bounds }
+    const { a, b, c, d, e, f } = matrix
+    const x1 = bounds.x
+    const y1 = bounds.y
+    const x2 = bounds.x + bounds.width
+    const y2 = bounds.y + bounds.height
+    
+    const p1x = a * x1 + c * y1 + e
+    const p1y = b * x1 + d * y1 + f
+    const p2x = a * x2 + c * y1 + e
+    const p2y = b * x2 + d * y1 + f
+    const p3x = a * x1 + c * y2 + e
+    const p3y = b * x1 + d * y2 + f
+    const p4x = a * x2 + c * y2 + e
+    const p4y = b * x2 + d * y2 + f
+    
+    const minX = Math.min(p1x, p2x, p3x, p4x)
+    const minY = Math.min(p1y, p2y, p3y, p4y)
+    const maxX = Math.max(p1x, p2x, p3x, p4x)
+    const maxY = Math.max(p1y, p2y, p3y, p4y)
+    
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY
+    }
+  }
+
+  private _transformBoundsToLocal(bounds: { x: number; y: number; width: number; height: number }, matrix: any): { x: number; y: number; width: number; height: number } {
+    if (!matrix) return { ...bounds }
+    const { a, b, c, d, e, f } = matrix
+    const det = a * d - b * c
+    if (!det) return { ...bounds }
+    
+    const ia = d / det
+    const ib = -b / det
+    const ic = -c / det
+    const id = a / det
+    const ie = (c * f - d * e) / det
+    const iff = (b * e - a * f) / det
+    
+    const x1 = bounds.x
+    const y1 = bounds.y
+    const x2 = bounds.x + bounds.width
+    const y2 = bounds.y + bounds.height
+    
+    const p1x = ia * x1 + ic * y1 + ie
+    const p1y = ib * x1 + id * y1 + iff
+    const p2x = ia * x2 + ic * y1 + ie
+    const p2y = ib * x2 + id * y1 + iff
+    const p3x = ia * x1 + ic * y2 + ie
+    const p3y = ib * x1 + id * y2 + iff
+    const p4x = ia * x2 + ic * y2 + ie
+    const p4y = ib * x2 + id * y2 + iff
+    
+    const minX = Math.min(p1x, p2x, p3x, p4x)
+    const minY = Math.min(p1y, p2y, p3y, p4y)
+    const maxX = Math.max(p1x, p2x, p3x, p4x)
+    const maxY = Math.max(p1y, p2y, p3y, p4y)
+    
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY
+    }
   }
   
   /**
@@ -278,58 +451,12 @@ export class RichText extends UI {
   }
   
   /**
-   * ✅ 关键修复：更新渲染边界
-   * 扩大渲染区域以包含翻转可能覆盖的范围
-   * 解决翻转后残影问题
-   */
-  __updateRenderBounds(): void {
-    const layout = this.__layout
-    const box = layout.boxBounds
-    const render = layout.renderBounds
-    
-    // 如果有翻转，扩大渲染边界
-    if (this._isFlippedX || this._isFlippedY) {
-      // 计算翻转可能覆盖的最大范围
-      // 水平翻转：可能覆盖 x - width 到 x + width
-      // 垂直翻转：可能覆盖 y - height 到 y + height
-      
-      const expandX = this._isFlippedX ? box.width : 0
-      const expandY = this._isFlippedY ? box.height : 0
-      
-      render.x = box.x - expandX
-      render.y = box.y - expandY
-      render.width = box.width + (this._isFlippedX ? box.width * 2 : 0)
-      render.height = box.height + (this._isFlippedY ? box.height * 2 : 0)
-      
-      if (this.debugMode) {
-        console.log(`[RichText] 扩大 renderBounds: box=(${box.x},${box.y},${box.width},${box.height}), render=(${render.x},${render.y},${render.width},${render.height})`)
-      }
-    } else {
-      // 没有翻转，renderBounds = boxBounds
-      render.x = box.x
-      render.y = box.y
-      render.width = box.width
-      render.height = box.height
-    }
-  }
-  
-  /**
    * 自定义绘制（核心）
    */
   __draw(canvas: ILeaferCanvas): void {
     const ctx = canvas.context as CanvasRenderingContext2D
     
     ctx.save()
-    
-    // ✅ 关键理解：Leafer 的布局系统已经自动处理了负宽高
-    // __layout.boxBounds 始终是正值（绝对值）
-    // 元素的 transform 矩阵中已包含翻转（scaleX/scaleY 为负）
-    // 所以我们只需要按正常逻辑绘制，不要手动翻转！
-    
-    // 调试：输出状态
-    if (this.debugMode) {
-      console.log(`[RichText Draw] width=${this.width}, boxBounds.width=${this.__layout.boxBounds.width}, flipX=${this._isFlippedX}, flipY=${this._isFlippedY}`)
-    }
     
     // 1. 绘制选区背景
     if (this.isEditing && this.selectionStart !== this.selectionEnd) {
@@ -401,8 +528,10 @@ export class RichText extends UI {
   private _splitLines(): string[][] {
     if (!this._graphemes.length) return [[]]
     
+    const layoutWidth = Math.abs(this.width || 0)
+    
     // 如果启用了自动宽度，或 textWrap 是 'none'，或没有设置宽度，只按 \n 分行
-    if (this.autoWidth || this.textWrap === 'none' || !this.width || this.width <= 0) {
+    if (this.autoWidth || this.textWrap === 'none' || layoutWidth <= 0) {
       return this._splitLinesByNewline()
     }
     
@@ -438,15 +567,7 @@ export class RichText extends UI {
     const paragraphs = this._splitLinesByNewline() // 先按 \n 分段
     
     const padding = this._parsePadding(this.padding)
-    
-    // ✅ 支持负宽度：使用绝对值计算换行宽度
-    const absWidth = Math.abs(this.width)
-    const maxWidth = absWidth - padding.left - padding.right
-    
-    // ✅ 安全检查：宽度太小时退化为按 \n 分行
-    if (maxWidth <= 20) {
-      return this._splitLinesByNewline()
-    }
+    const maxWidth = Math.max(0, Math.abs(this.width || 0) - padding.left - padding.right)
     
     // 临时保存当前的线性字符索引（用于获取字符级样式）
     let linearCharIndex = 0
@@ -657,7 +778,7 @@ export class RichText extends UI {
     const padding = this._parsePadding(this.padding)
     const containerWidth = this.autoWidth 
       ? 0 
-      : (this.width || 0) - padding.left - padding.right
+      : Math.abs(this.width || 0) - padding.left - padding.right
     
     if (!containerWidth || containerWidth <= 0) return
     
@@ -707,11 +828,11 @@ export class RichText extends UI {
   
   private _getTextBounds(): { width: number; height: number } {
     const padding = this._parsePadding(this.padding)
+    const layoutWidth = Math.abs(this.width || 0)
     
     if (!this._lineMetrics.length) {
       const baseHeight = this.fontSize * (typeof this.lineHeight === 'number' ? this.lineHeight : RICHTEXT_DEFAULTS.lineHeight)
-      // ✅ 使用绝对值（支持负宽度）
-      const baseWidth = this.autoWidth ? 100 : Math.abs(this.width || 100)
+      const baseWidth = this.autoWidth ? 100 : (layoutWidth || 100)
       return { 
         width: baseWidth + padding.left + padding.right, 
         height: baseHeight + padding.top + padding.bottom 
@@ -729,10 +850,10 @@ export class RichText extends UI {
       0
     )
     
-    // ✅ 宽度：使用绝对值（支持负宽度）
+    // 宽度：autoWidth 时使用内容宽度，否则取 max(内容宽度, 设置宽度)
     const finalWidth = this.autoWidth 
       ? contentWidth 
-      : Math.max(contentWidth, Math.abs(this.width || 0))
+      : Math.max(contentWidth, layoutWidth)
     
     const totalHeight = this._lineMetrics.reduce((sum, line) => sum + line.height, 0)
     
@@ -820,16 +941,7 @@ export class RichText extends UI {
   private _pointerToIndex(x: number, y: number): number {
     if (!this._lineMetrics.length) return 0
     
-    // ✅ 关键：Leafer 的 getInnerPoint() 已经考虑了元素的 transform
-    // 包括负宽高导致的翻转（scaleX/scaleY），所以我们不需要手动翻转坐标
-    // 直接使用传入的 x, y 即可
-    
-    // 调试：输出点击坐标
-    if (this.debugMode) {
-      console.log(`[RichText] _pointerToIndex: x=${x}, y=${y}, flipX=${this._isFlippedX}`)
-    }
-    
-    // 获取 padding
+    // 获取 padding 和调整坐标
     const padding = this._parsePadding(this.padding)
     const adjustedX = x - padding.left
     const adjustedY = y - padding.top
@@ -873,9 +985,9 @@ export class RichText extends UI {
     // 获取 padding（支持数组）
     const padding = this._parsePadding(this.padding)
     
-    // 检查是否需要处理溢出（使用绝对值）
+    // 检查是否需要处理溢出
     const shouldClip = this.textOverflow === 'hide' || (typeof this.textOverflow === 'string' && this.textOverflow !== 'show')
-    const hasFixedSize = (this.width && Math.abs(this.width) > 0 && !this.autoWidth) || (this.height && Math.abs(this.height) > 0 && !this.autoHeight)
+    const hasFixedSize = (Math.abs(this.width || 0) > 0 && !this.autoWidth) || (Math.abs(this.height || 0) > 0 && !this.autoHeight)
     
     if (shouldClip && hasFixedSize) {
       ctx.save()
@@ -1130,11 +1242,11 @@ export class RichText extends UI {
     const lastLetterSpacing = this._parseLetterSpacing(lastChar.style.letterSpacing, lastChar.style.fontSize!)
     const lineWidth = lastChar.x + lastChar.width + lastLetterSpacing
     
-    // 容器宽度（考虑 padding，使用绝对值）
+    // 容器宽度（考虑 padding）
     const padding = this._parsePadding(this.padding)
     const containerWidth = this.autoWidth 
       ? lineWidth 
-      : (Math.abs(this.width) || lineWidth) - padding.left - padding.right
+      : Math.abs(this.width || lineWidth) - padding.left - padding.right
     
     const gap = containerWidth - lineWidth
     
@@ -1412,8 +1524,8 @@ export class RichText extends UI {
     
     // ✅ 关键：进入编辑时禁用元素拖拽，避免键盘事件移动元素
     // 保存原始 draggable 状态
-    this._savedDraggable = (this as any).draggable
-    ;(this as any).draggable = false
+    this._savedDraggable = this.draggable
+    this.draggable = false
     
     // 设置光标位置（优先使用参数，其次使用待定位置）
     const targetPosition = cursorPosition !== undefined 
@@ -1454,7 +1566,7 @@ export class RichText extends UI {
     
     // ✅ 恢复原始 draggable 状态
     if (this._savedDraggable !== undefined) {
-      ;(this as any).draggable = this._savedDraggable
+      this.draggable = this._savedDraggable
       this._savedDraggable = undefined
     }
     this._destroyHiddenTextarea()

@@ -16,13 +16,25 @@ const app = new App({
 
 // 当前被面板操作的 RichText（选中或正在编辑的任意一个）
 let currentRichText: RichText | null = null
+let currentResizeHandler: (() => void) | null = null
 
 function getCurrentRichText(): RichText | null {
   return currentRichText
 }
 
 function setCurrentRichText(rt: RichText | null): void {
+  if (currentRichText && currentResizeHandler) {
+    currentRichText.off('bounds.resize', currentResizeHandler)
+    currentResizeHandler = null
+  }
   currentRichText = rt
+  if (rt) {
+    currentResizeHandler = () => {
+      updatePanelFromRichText(rt)
+      updateSelectionInfo()
+    }
+    rt.on('bounds.resize', currentResizeHandler)
+  }
   updatePanelFromRichText(rt)
 }
 
