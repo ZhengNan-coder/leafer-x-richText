@@ -153,6 +153,7 @@ export class RichText extends UI {
   private _cursorOpacity = 1
   private _cursorTimer: number | null = null
   private _inComposition = false
+  private _compositionSnapshotRecorded = false
   private _measureCanvas: HTMLCanvasElement
   private _measureCtx: CanvasRenderingContext2D
   private _lastScaleSignX = 1
@@ -1357,8 +1358,20 @@ export class RichText extends UI {
     const line = this._lineMetrics[loc.lineIndex]
     if (!line) return
     
-    // 获取 padding
+    const { x, y } = this._getCursorLocalPosition()
+    const finalX = x
+    const finalY = y
+    
+    ctx.globalAlpha = this._cursorOpacity
+    ctx.fillStyle = this.cursorColor
+    ctx.fillRect(finalX, finalY, this.cursorWidth, line.height)
+  }
+  
+  private _getCursorLocalPosition(): { x: number; y: number } {
+    const loc = this._linearToLocation(this.selectionStart)
+    const line = this._lineMetrics[loc.lineIndex]
     const padding = this._parsePadding(this.padding)
+    if (!line) return { x: padding.left, y: padding.top }
     
     let x = 0
     if (line.chars.length === 0 || loc.charIndex === 0) {
@@ -1373,13 +1386,35 @@ export class RichText extends UI {
       x = line.chars[loc.charIndex].x
     }
     
-    // 字符位置已包含对齐偏移，只需加 padding
-    const finalX = x + padding.left
-    const finalY = line.y + padding.top
+    return { x: x + padding.left, y: line.y + padding.top }
+  }
+  
+  private _updateTextareaPosition(): void {
+    if (!this._hiddenTextarea || !this.leafer) return
     
-    ctx.globalAlpha = this._cursorOpacity
-    ctx.fillStyle = this.cursorColor
-    ctx.fillRect(finalX, finalY, this.cursorWidth, line.height)
+    const view = (this.leafer as any).view as HTMLElement | undefined
+    if (!view || !view.getBoundingClientRect) return
+    
+    const { x, y } = this._getCursorLocalPosition()
+    const world = this._localToWorldPoint(x, y)
+    const rect = view.getBoundingClientRect()
+    
+    const left = rect.left + world.x
+    const top = rect.top + world.y
+    
+    if (Number.isFinite(left)) this._hiddenTextarea.style.left = `${left}px`
+    if (Number.isFinite(top)) this._hiddenTextarea.style.top = `${top}px`
+  }
+  
+  private _localToWorldPoint(x: number, y: number): { x: number; y: number } {
+    const worldMatrix = (this.worldTransform || (this as any).__world) as any
+    if (!worldMatrix) return { x, y }
+    
+    const { a, b, c, d, e, f } = worldMatrix
+    return {
+      x: a * x + c * y + e,
+      y: b * x + d * y + f
+    }
   }
   
   // ============ 事件绑定 ============
@@ -1617,8 +1652,8 @@ export class RichText extends UI {
     textarea.setAttribute('data-richtext-editor', 'true')
     textarea.style.cssText = `
       position: fixed;
-      top: -9999px;
-      left: -9999px;
+      top: 0;
+      left: 0;
       opacity: 0;
       width: 1px;
       height: 1px;
@@ -1636,10 +1671,16 @@ export class RichText extends UI {
     textarea.addEventListener('keydown', this._onKeyDown.bind(this))
     textarea.addEventListener('compositionstart', () => { 
       this._inComposition = true
+      this._compositionSnapshotRecorded = false
+    })
+    textarea.addEventListener('compositionupdate', () => {
+      // 组合输入时也同步（用于显示候选/预编辑文本）
+      this._onInput(true)
     })
     textarea.addEventListener('compositionend', () => {
       this._inComposition = false
-      this._onInput()
+      this._onInput(true)
+      this._compositionSnapshotRecorded = false
     })
     textarea.addEventListener('blur', () => {
       // blur 时不退出编辑，只重新聚焦；退出由 Editor.closeInnerEditor() 或 ESC 控制
@@ -1665,10 +1706,12 @@ export class RichText extends UI {
     })
     
     this._hiddenTextarea = textarea
+    this._updateTextareaPosition()
     
     // 延迟聚焦，避免立即 blur
     setTimeout(() => {
       if (this._hiddenTextarea) {
+        this._updateTextareaPosition()
         this._hiddenTextarea.focus()
       }
     }, 0)
@@ -1687,10 +1730,12 @@ export class RichText extends UI {
     
     this._hiddenTextarea.selectionStart = this.selectionStart
     this._hiddenTextarea.selectionEnd = this.selectionEnd
+    this._updateTextareaPosition()
   }
   
-  private _onInput(): void {
-    if (!this._hiddenTextarea || this._inComposition) return
+  private _onInput(forceOrEvent?: boolean | Event): void {
+    const force = typeof forceOrEvent === 'boolean' ? forceOrEvent : false
+    if (!this._hiddenTextarea || (this._inComposition && !force)) return
     
     const newText = this._hiddenTextarea.value
     const oldText = String(this.text || '')
@@ -1701,7 +1746,15 @@ export class RichText extends UI {
       return
     }
     
-    this._recordSnapshot()
+    const isCompositionEvent = this._inComposition || force
+    if (isCompositionEvent) {
+      if (!this._compositionSnapshotRecorded) {
+        this._recordSnapshot()
+        this._compositionSnapshotRecorded = true
+      }
+    } else {
+      this._recordSnapshot()
+    }
     
     // 文本 diff + 样式迁移（参考 Fabric 思路）
     const oldG = this._graphemes
@@ -1736,6 +1789,7 @@ export class RichText extends UI {
     
     this.forceUpdate()
     this.forceRender()
+    this._updateTextareaPosition()
   }
   
   /**

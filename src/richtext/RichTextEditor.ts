@@ -82,10 +82,12 @@ export class RichTextEditor extends InnerEditor {
       // ✅ 拦截键盘事件，防止 Editor 处理（避免方向键移动元素）
       editor.app.on_('key.down' as any, (e: any) => {
         if (richtext.isEditing) {
-          // 在编辑状态下，阻止键盘事件传递到 Editor
-          // Leafer API: 使用 stop() 代替 stopPropagation()
+          // 在编辑状态下，阻止事件冒泡到 Editor
+          // 但不要阻止默认输入（否则 textarea 无法接收输入）
           if (e.stop) e.stop()
-          if (e.stopDefault) e.stopDefault()
+          const activeEl = document.activeElement as HTMLElement | null
+          const isRichTextTextarea = activeEl?.getAttribute?.('data-richtext-editor') === 'true'
+          if (!isRichTextTextarea && e.stopDefault) e.stopDefault()
         }
       }, { capture: true })  // 使用捕获阶段拦截
     ]
