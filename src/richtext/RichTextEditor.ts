@@ -87,7 +87,13 @@ export class RichTextEditor extends InnerEditor {
           if (e.stop) e.stop()
           const activeEl = document.activeElement as HTMLElement | null
           const isRichTextTextarea = activeEl?.getAttribute?.('data-richtext-editor') === 'true'
-          if (!isRichTextTextarea && e.stopDefault) e.stopDefault()
+          const isTextEntry = !!activeEl && (
+            activeEl.tagName === 'INPUT' ||
+            activeEl.tagName === 'SELECT' ||
+            activeEl.tagName === 'TEXTAREA' ||
+            (activeEl as any).isContentEditable === true
+          )
+          if (!isRichTextTextarea && !isTextEntry && e.stopDefault) e.stopDefault()
         }
       }, { capture: true })  // 使用捕获阶段拦截
     ]

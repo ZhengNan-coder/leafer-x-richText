@@ -1689,19 +1689,15 @@ export class RichText extends UI {
         if (!this.isEditing) return
         if (!this._hiddenTextarea) return
         
-        const activeEl = document.activeElement
+        const activeEl = document.activeElement as HTMLElement | null
+        if (!activeEl || activeEl === this._hiddenTextarea) return
         
-        // 如果焦点在面板元素上，重新聚焦 textarea
-        const isUIElement = activeEl && (
-          activeEl.closest('.panel') || 
-          activeEl.tagName === 'INPUT' ||
-          activeEl.tagName === 'SELECT' ||
-          activeEl.tagName === 'BUTTON'
-        )
+        // 若用户正在操作面板输入控件，避免抢焦点
+        const inPanel = activeEl.closest?.('.panel')
+        const isTextEntry = activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA'
+        if (inPanel && isTextEntry) return
         
-        if (isUIElement || activeEl !== this._hiddenTextarea) {
-          this._hiddenTextarea?.focus()
-        }
+        this._hiddenTextarea?.focus()
       }, 100)
     })
     

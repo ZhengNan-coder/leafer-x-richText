@@ -140,7 +140,7 @@ setTimeout(() => {
 
 // 获取面板元素
 const fontSizeInput = document.getElementById('fontSize') as HTMLInputElement
-const fontFamilySelect = document.getElementById('fontFamily') as HTMLSelectElement
+const fontFamilyInput = document.getElementById('fontFamily') as HTMLInputElement
 const fillInput = document.getElementById('fill') as HTMLInputElement
 const letterSpacingInput = document.getElementById('letterSpacing') as HTMLInputElement
 const lineHeightInput = document.getElementById('lineHeight') as HTMLInputElement
@@ -166,11 +166,11 @@ const selectionInfo = document.getElementById('selectionInfo')!
 
 // 根据当前选中的 RichText 更新面板控件
 function updatePanelFromRichText(rt: RichText | null): void {
-  if (!fontSizeInput || !fillInput || !fontFamilySelect) return
+  if (!fontSizeInput || !fillInput || !fontFamilyInput) return
   if (!rt) {
     fontSizeInput.value = '24'
     fillInput.value = '#333333'
-    fontFamilySelect.value = 'Arial'
+    fontFamilyInput.value = 'Arial'
     letterSpacingInput.value = '0'
     lineHeightInput.value = '1.5'
     textAlignSelect.value = 'left'
@@ -200,7 +200,7 @@ function updatePanelFromRichText(rt: RichText | null): void {
   // 基础样式
   fontSizeInput.value = String(s.fontSize ?? rt.fontSize ?? 24)
   fillInput.value = (s.fill ?? rt.fill ?? '#333').toString().slice(0, 7)
-  fontFamilySelect.value = (s.fontFamily ?? rt.fontFamily ?? 'Arial') as string
+  fontFamilyInput.value = (s.fontFamily ?? rt.fontFamily ?? 'Arial') as string
   
   // 新属性
   const letterSpacing = s.letterSpacing ?? rt.letterSpacing ?? 0
@@ -262,8 +262,8 @@ fontSizeInput.addEventListener('input', () => {
   refocusTextarea()
 })
 
-fontFamilySelect.addEventListener('change', () => {
-  applyStyle({ fontFamily: fontFamilySelect.value })
+fontFamilyInput.addEventListener('input', () => {
+  applyStyle({ fontFamily: fontFamilyInput.value })
   refocusTextarea()
 })
 
@@ -423,7 +423,12 @@ fixedHeightInput.addEventListener('input', () => {
 // 重新聚焦当前 RichText 的 textarea（仅编辑中时有效）
 function refocusTextarea() {
   const rt = getCurrentRichText()
-  if (rt?.isEditing) setTimeout(() => rt.refocus(), 50)
+  if (!rt?.isEditing) return
+  const activeEl = document.activeElement as HTMLElement | null
+  const inPanel = activeEl?.closest?.('.panel')
+  const isTextEntry = activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'SELECT' || activeEl?.tagName === 'TEXTAREA'
+  if (inPanel && isTextEntry) return
+  setTimeout(() => rt.refocus(), 50)
 }
 
 btnSelectAll.addEventListener('click', () => {
