@@ -44,13 +44,7 @@ export class RichTextEditor extends InnerEditor {
       (editor as any).keyEvent.disable?.()
     }
     
-    // ✅ 方案4：从 Editor 的选中列表中临时移除（最强力）
-    // 这样 Editor 完全不会处理这个元素的任何操作
-    this._savedEditorConfig.wasInList = editor.list?.includes(richtext)
-    if (this._savedEditorConfig.wasInList) {
-      // 临时清空选中列表（内部编辑时不需要外部选中框）
-      editor.list = []
-    }
+    // ✅ 方案4：不修改 editor.list，避免触发 innerEditor 关闭
     
     // 重要：让 RichText 能接收 pointer 事件
     // Editor 在 innerEditing 时会停止事件传播，需要手动转发
@@ -130,10 +124,7 @@ export class RichTextEditor extends InnerEditor {
         (editor as any).keyEvent.enable?.()
       }
       
-      // 恢复选中列表
-      if (this._savedEditorConfig.wasInList) {
-        editor.select(richtext as any)
-      }
+      // 不强制恢复选中列表（避免干扰 Editor 状态）
       
       this._savedEditorConfig = null
     }
