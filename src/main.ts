@@ -42,7 +42,7 @@ function setCurrentRichText(rt: RichText | null): void {
 const richtext = new RichText({
   x: 100,
   y: 100,
-  text: '欢迎使用 RichText！\n这是一段支持自动宽高的文本。\n宽度和高度会随内容自动调整。',
+  text: '欢迎使用 RichText！\n这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。这是一段支持自动宽高的文本。\n宽度和高度会随内容自动调整。',
   fontSize: 24,
   fill: '#333',
   editable: true,
@@ -492,7 +492,7 @@ btnAddText.addEventListener('click', () => {
   const newText = new RichText({
     x: 100,
     y: 450,
-    text: '📢 各位老铁好~为了帮助各位高粉达人有更高的播放和转化收益，我们将在官方剧单内从不同维度设置五个榜单，且每日更新；并针对榜单剧进行额外的现金激励。\n具体激励规则如下：',
+    text: '各位老铁好~为了帮助各位高粉达人有更高的播放和转化收益，我们将在官方剧单内从不同维度设置五个榜单，且每日更新；并针对榜单剧进行额外的现金激励。',
     fontSize: 20,
     fill: [{
       type: 'solid',

@@ -155,6 +155,8 @@ export class RichText extends UI {
   private _inComposition = false
   private _compositionSnapshotRecorded = false
   private _paragraphEndLines: Set<number> = new Set()
+  private _lineHasNewline: boolean[] = []
+  private _paragraphNewlineFlags: boolean[] = []
   private _measureCanvas: HTMLCanvasElement
   private _measureCtx: CanvasRenderingContext2D
   private _lastScaleSignX = 1
@@ -548,10 +550,14 @@ export class RichText extends UI {
     const lines: string[][] = []
     let currentLine: string[] = []
     this._paragraphEndLines.clear()
+    this._lineHasNewline = []
+    this._paragraphNewlineFlags = []
     
     for (const char of this._graphemes) {
       if (char === '\n') {
         lines.push(currentLine)
+        this._lineHasNewline.push(true)
+        this._paragraphNewlineFlags.push(true)
         this._paragraphEndLines.add(lines.length - 1)
         currentLine = []
       } else {
@@ -559,6 +565,8 @@ export class RichText extends UI {
       }
     }
     lines.push(currentLine)
+    this._lineHasNewline.push(false)
+    this._paragraphNewlineFlags.push(false)
     this._paragraphEndLines.add(lines.length - 1)
     
     return lines.length ? lines : [[]]
@@ -571,6 +579,8 @@ export class RichText extends UI {
     const lines: string[][] = []
     const paragraphs = this._splitLinesByNewline() // 先按 \n 分段
     this._paragraphEndLines.clear()
+    this._lineHasNewline = []
+    const paragraphNewlineFlags = this._paragraphNewlineFlags
     
     const padding = this._parsePadding(this.padding)
     const maxWidth = Math.max(0, Math.abs(this.width || 0) - padding.left - padding.right)
@@ -582,6 +592,7 @@ export class RichText extends UI {
       const para = paragraphs[paraIdx]
       if (para.length === 0) {
         lines.push([])
+        this._lineHasNewline.push(!!paragraphNewlineFlags[paraIdx])
         this._paragraphEndLines.add(lines.length - 1)
         linearCharIndex++  // 换行符
         continue
@@ -623,11 +634,13 @@ export class RichText extends UI {
           if (this.textWrap === 'break' || this.textWrap === 'normal') {
             // 强制断词换行（normal 不在空格处提前断行）
             lines.push(currentLine)
+            this._lineHasNewline.push(false)
             currentLine = [char]
             currentWidth = charWidth + charLetterSpacing
           } else {
             // 兜底：按宽度强制断行
             lines.push(currentLine)
+            this._lineHasNewline.push(false)
             currentLine = [char]
             currentWidth = charWidth + charLetterSpacing
           }
@@ -641,6 +654,10 @@ export class RichText extends UI {
       
       if (currentLine.length > 0) {
         lines.push(currentLine)
+        this._lineHasNewline.push(false)
+      }
+      if (this._lineHasNewline.length) {
+        this._lineHasNewline[this._lineHasNewline.length - 1] = !!paragraphNewlineFlags[paraIdx]
       }
       this._paragraphEndLines.add(lines.length - 1)
       
@@ -914,7 +931,8 @@ export class RichText extends UI {
       if (index <= charCount + lineLength) {
         return { lineIndex, charIndex: index - charCount }
       }
-      charCount += lineLength + 1 // +1 for newline
+      const hasNewline = !!this._lineHasNewline[lineIndex]
+      charCount += lineLength + (hasNewline ? 1 : 0)
     }
     
     return { lineIndex: this._lines.length - 1, charIndex: this._lines[this._lines.length - 1]?.length || 0 }
@@ -923,7 +941,8 @@ export class RichText extends UI {
   private _locationToLinear(lineIndex: number, charIndex: number): number {
     let index = 0
     for (let i = 0; i < lineIndex && i < this._lines.length; i++) {
-      index += this._lines[i].length + 1
+      const hasNewline = !!this._lineHasNewline[i]
+      index += this._lines[i].length + (hasNewline ? 1 : 0)
     }
     return index + charIndex
   }
@@ -1861,14 +1880,7 @@ export class RichText extends UI {
       this._updateGraphemes()
     }
     
-    if (graphemeIndex >= this._graphemes.length) return text.length
-    
-    let codeUnitIndex = 0
-    for (let i = 0; i < graphemeIndex && i < this._graphemes.length; i++) {
-      codeUnitIndex += this._graphemes[i].length
-    }
-    
-    return Math.min(codeUnitIndex, text.length)
+    return this._graphemeIndexToCodeUnitWith(text, this._graphemes, graphemeIndex)
   }
   
   /**
@@ -1883,18 +1895,37 @@ export class RichText extends UI {
       this._updateGraphemes()
     }
     
-    if (codeUnitIndex >= text.length) return this._graphemes.length
+    return this._codeUnitToGraphemeIndexWith(text, this._graphemes, codeUnitIndex)
+  }
+  
+  private _graphemeIndexToCodeUnitWith(text: string, graphemes: string[], graphemeIndex: number): number {
+    if (!text || graphemeIndex <= 0) return 0
+    if (!graphemes.length) return Math.min(graphemeIndex, text.length)
+    if (graphemeIndex >= graphemes.length) return text.length
+    
+    let codeUnitIndex = 0
+    for (let i = 0; i < graphemeIndex && i < graphemes.length; i++) {
+      codeUnitIndex += graphemes[i].length
+    }
+    
+    return Math.min(codeUnitIndex, text.length)
+  }
+  
+  private _codeUnitToGraphemeIndexWith(text: string, graphemes: string[], codeUnitIndex: number): number {
+    if (!text || codeUnitIndex <= 0) return 0
+    if (!graphemes.length) return Math.min(codeUnitIndex, text.length)
+    if (codeUnitIndex >= text.length) return graphemes.length
     
     let charCount = 0
     let graphemeIndex = 0
     
-    for (const grapheme of this._graphemes) {
+    for (const grapheme of graphemes) {
       if (charCount >= codeUnitIndex) break
       charCount += grapheme.length
       graphemeIndex++
     }
     
-    return Math.min(graphemeIndex, this._graphemes.length)
+    return Math.min(graphemeIndex, graphemes.length)
   }
   
   private _updateTextarea(): void {
@@ -1931,6 +1962,8 @@ export class RichText extends UI {
     // 文本 diff + 样式迁移（参考 Fabric 思路）
     const oldG = this._graphemes
     const newG = graphemeSplit(newText)
+    const selectionStart = this._codeUnitToGraphemeIndexWith(newText, newG, this._hiddenTextarea.selectionStart)
+    const selectionEnd = this._codeUnitToGraphemeIndexWith(newText, newG, this._hiddenTextarea.selectionEnd)
     
     // 找出公共前缀
     let prefix = 0
@@ -1956,8 +1989,8 @@ export class RichText extends UI {
     
     // 更新文本（会触发 _updateGraphemes 和 _splitLines）
     this.text = newText
-    this.selectionStart = this._codeUnitToGraphemeIndex(this._hiddenTextarea.selectionStart)
-    this.selectionEnd = this._codeUnitToGraphemeIndex(this._hiddenTextarea.selectionEnd)
+    this.selectionStart = selectionStart
+    this.selectionEnd = selectionEnd
     
     this.forceUpdate()
     this.forceRender()
@@ -2440,7 +2473,8 @@ export class RichText extends UI {
       const codeUnitEnd = this._graphemeIndexToCodeUnit(this.selectionEnd)
       ta.value = ta.value.slice(0, codeUnitPos) + text + ta.value.slice(codeUnitEnd)
       const newGraphemePos = pos + graphemeSplit(text).length
-      const newCodeUnitPos = this._graphemeIndexToCodeUnit(newGraphemePos)
+      const newG = graphemeSplit(ta.value)
+      const newCodeUnitPos = this._graphemeIndexToCodeUnitWith(ta.value, newG, newGraphemePos)
       ta.selectionStart = ta.selectionEnd = newCodeUnitPos
       this._onInput()
     }
