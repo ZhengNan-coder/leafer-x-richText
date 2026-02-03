@@ -469,32 +469,5 @@ leafer-x-richText/
 └── README.md
 ```
 
-## 发布到公共 npm（避免发到公司源）
-
-本项目已做两处配置，保证发布到 **https://registry.npmjs.org/**：
-
-1. **项目根目录的 `.npmrc`**  
-   内容为 `registry=https://registry.npmjs.org/`，只对本项目生效。在本目录下执行 `npm install` / `npm publish` 都会走公共 npm。
-
-2. **推荐：用脚本发布**（不依赖 .npmrc，最稳）  
-   ```bash
-   npm run publish:public
-   ```
-   会先构建再执行 `npm publish --registry https://registry.npmjs.org/ --access public`。
-
-**发布前**请先登录公共 npm（若未登录）：
-```bash
-npm login
-# 使用 https://www.npmjs.com 的账号
-```
-
-然后在本项目根目录执行：
-```bash
-npm run publish:public
-# 或
-npm publish
-```
-
-## License
 
 MIT
