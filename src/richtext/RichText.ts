@@ -154,6 +154,7 @@ export class RichText extends UI {
   private _cursorTimer: number | null = null
   private _inComposition = false
   private _compositionSnapshotRecorded = false
+  private _paragraphEndLines: Set<number> = new Set()
   private _measureCanvas: HTMLCanvasElement
   private _measureCtx: CanvasRenderingContext2D
   private _lastScaleSignX = 1
@@ -546,16 +547,19 @@ export class RichText extends UI {
   private _splitLinesByNewline(): string[][] {
     const lines: string[][] = []
     let currentLine: string[] = []
+    this._paragraphEndLines.clear()
     
     for (const char of this._graphemes) {
       if (char === '\n') {
         lines.push(currentLine)
+        this._paragraphEndLines.add(lines.length - 1)
         currentLine = []
       } else {
         currentLine.push(char)
       }
     }
     lines.push(currentLine)
+    this._paragraphEndLines.add(lines.length - 1)
     
     return lines.length ? lines : [[]]
   }
@@ -566,6 +570,7 @@ export class RichText extends UI {
   private _splitLinesWithWrap(): string[][] {
     const lines: string[][] = []
     const paragraphs = this._splitLinesByNewline() // 先按 \n 分段
+    this._paragraphEndLines.clear()
     
     const padding = this._parsePadding(this.padding)
     const maxWidth = Math.max(0, Math.abs(this.width || 0) - padding.left - padding.right)
@@ -577,6 +582,7 @@ export class RichText extends UI {
       const para = paragraphs[paraIdx]
       if (para.length === 0) {
         lines.push([])
+        this._paragraphEndLines.add(lines.length - 1)
         linearCharIndex++  // 换行符
         continue
       }
@@ -614,34 +620,16 @@ export class RichText extends UI {
         
         // 检查是否需要换行
         if (currentWidth + charWidth > maxWidth - indent && currentLine.length > 0) {
-          if (this.textWrap === 'break') {
-            // 强制断词换行
+          if (this.textWrap === 'break' || this.textWrap === 'normal') {
+            // 强制断词换行（normal 不在空格处提前断行）
             lines.push(currentLine)
             currentLine = [char]
             currentWidth = charWidth + charLetterSpacing
           } else {
-            // normal: 尝试在单词边界换行
-            const lastSpaceIdx = this._findLastSpace(currentLine)
-            if (lastSpaceIdx >= 0) {
-              // 在空格处断行
-              const beforeSpace = currentLine.slice(0, lastSpaceIdx)
-              const afterSpace = currentLine.slice(lastSpaceIdx + 1)
-              lines.push(beforeSpace)
-              currentLine = [...afterSpace, char]
-              // 重新计算当前行宽度
-              currentWidth = charWidth + charLetterSpacing
-              for (let j = 0; j < afterSpace.length; j++) {
-                const afterCharIdx = linearCharIndex - afterSpace.length + j
-                const afterCharStyle = this._getStyleAtLinearIndex(afterCharIdx)
-                const afterCharWidth = this._estimateCharWidthWithStyle(afterSpace[j], afterCharStyle)
-                currentWidth += afterCharWidth
-              }
-            } else {
-              // 没有空格，强制断行
-              lines.push(currentLine)
-              currentLine = [char]
-              currentWidth = charWidth + charLetterSpacing
-            }
+            // 兜底：按宽度强制断行
+            lines.push(currentLine)
+            currentLine = [char]
+            currentWidth = charWidth + charLetterSpacing
           }
         } else {
           currentLine.push(char)
@@ -654,6 +642,7 @@ export class RichText extends UI {
       if (currentLine.length > 0) {
         lines.push(currentLine)
       }
+      this._paragraphEndLines.add(lines.length - 1)
       
       linearCharIndex++  // 换行符
     }
@@ -999,6 +988,10 @@ export class RichText extends UI {
       ctx.clip()
     }
     
+    const gradientBounds = this.textOverflow === 'show'
+      ? this._getContentRenderBounds()
+      : this.__layout.boxBounds
+    
     for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
       const line = this._lineMetrics[lineIdx]
       
@@ -1074,7 +1067,7 @@ export class RichText extends UI {
         let displayChar = this._applyTextCase(char.char, style.textCase)
         
         // 文字
-        ctx.fillStyle = this._fillToString(style.fill)
+        ctx.fillStyle = this._getFillStyle(ctx, style.fill, gradientBounds)
         ctx.font = buildFontString(
           style.fontSize!,
           style.fontFamily!,
@@ -1209,27 +1202,162 @@ export class RichText extends UI {
   private _fillToString(fill: IFill | undefined): string {
     if (!fill) return '#000'
     
-    // 字符串：直接使用
     if (typeof fill === 'string') return fill
     
-    // 数组：取第一个（简化处理）
     if (Array.isArray(fill)) {
-      return this._fillToString(fill[0])
+      const firstVisible = fill.find(p => (p as any)?.visible !== false) || fill[0]
+      return this._fillToString(firstVisible as any)
     }
     
-    // 对象：检查类型
     if (typeof fill === 'object') {
-      // 纯色填充
-      if ('type' in fill && fill.type === 'solid' && 'value' in fill) {
-        return this._colorToString(fill.value) || '#000'
+      if ('type' in fill && fill.type === 'solid' && 'color' in fill) {
+        return this._colorToString((fill as any).color) || '#000'
       }
       
-      // 渐变、图像等暂不支持（降级为默认色）
-      console.warn('[RichText] 暂不支持渐变/图像填充，降级为默认色')
+      if ('type' in fill && (fill as any).stops) {
+        const stops = (fill as any).stops as any[]
+        const firstStop = Array.isArray(stops) ? stops[0] : null
+        if (firstStop) {
+          const color = typeof firstStop === 'string' ? firstStop : firstStop.color
+          return this._colorToString(color) || '#000'
+        }
+      }
+      
       return '#000'
     }
     
     return '#000'
+  }
+  
+  private _getFillStyle(
+    ctx: CanvasRenderingContext2D,
+    fill: IFill | undefined,
+    bounds: { x: number; y: number; width: number; height: number }
+  ): string | CanvasGradient {
+    if (!fill) return '#000'
+    
+    if (typeof fill === 'string') return fill
+    
+    const paint = Array.isArray(fill)
+      ? (fill.find(p => (p as any)?.visible !== false) || fill[0])
+      : fill
+    
+    if (typeof paint !== 'object' || !('type' in paint)) {
+      return '#000'
+    }
+    
+    if (paint.type === 'solid' && 'color' in paint) {
+      return this._colorToString((paint as any).color) || '#000'
+    }
+    
+    if (paint.type === 'linear' || paint.type === 'radial') {
+      return this._createGradient(ctx, paint as any, bounds)
+    }
+    
+    return '#000'
+  }
+  
+  private _createGradient(
+    ctx: CanvasRenderingContext2D,
+    paint: { type: string; from?: any; to?: any; stops: any[] },
+    bounds: { x: number; y: number; width: number; height: number }
+  ): CanvasGradient {
+    const from = this._resolveGradientPoint(paint.from, bounds, 'left')
+    const to = this._resolveGradientPoint(paint.to, bounds, 'right')
+    
+    let gradient: CanvasGradient
+    if (paint.type === 'radial') {
+      const radius = Math.hypot(to.x - from.x, to.y - from.y) || Math.max(bounds.width, bounds.height) / 2
+      gradient = ctx.createRadialGradient(from.x, from.y, 0, to.x, to.y, radius)
+    } else {
+      gradient = ctx.createLinearGradient(from.x, from.y, to.x, to.y)
+    }
+    
+    const stops = paint.stops || []
+    if (stops.length) {
+      if (typeof stops[0] === 'string') {
+        const count = stops.length
+        stops.forEach((color: string, index: number) => {
+          const offset = count === 1 ? 0 : index / (count - 1)
+          gradient.addColorStop(offset, this._colorToString(color) || '#000')
+        })
+      } else {
+        stops.forEach((stop: any) => {
+          const offset = Math.max(0, Math.min(1, stop.offset ?? 0))
+          gradient.addColorStop(offset, this._colorToString(stop.color) || '#000')
+        })
+      }
+    }
+    
+    return gradient
+  }
+  
+  private _resolveGradientPoint(
+    point: any,
+    bounds: { x: number; y: number; width: number; height: number },
+    fallbackAlign: string
+  ): { x: number; y: number } {
+    if (!point) return this._alignToPoint(fallbackAlign, bounds)
+    
+    if (typeof point === 'string') {
+      return this._alignToPoint(point, bounds)
+    }
+    
+    if (typeof point === 'object') {
+      const x = this._resolveUnit(point.x, bounds.width, 0)
+      const y = this._resolveUnit(point.y, bounds.height, 0)
+      return { x: bounds.x + x, y: bounds.y + y }
+    }
+    
+    return this._alignToPoint(fallbackAlign, bounds)
+  }
+  
+  private _resolveUnit(value: any, size: number, fallback: number): number {
+    if (typeof value === 'number') {
+      return value >= 0 && value <= 1 ? value * size : value
+    }
+    
+    if (value && typeof value === 'object' && 'value' in value) {
+      const v = Number(value.value)
+      if (value.type === 'percent') return v * size
+      return v
+    }
+    
+    return fallback
+  }
+  
+  private _alignToPoint(
+    align: string,
+    bounds: { x: number; y: number; width: number; height: number }
+  ): { x: number; y: number } {
+    const xLeft = bounds.x
+    const xCenter = bounds.x + bounds.width / 2
+    const xRight = bounds.x + bounds.width
+    const yTop = bounds.y
+    const yCenter = bounds.y + bounds.height / 2
+    const yBottom = bounds.y + bounds.height
+    
+    switch (align) {
+      case 'top-left':
+        return { x: xLeft, y: yTop }
+      case 'top':
+        return { x: xCenter, y: yTop }
+      case 'top-right':
+        return { x: xRight, y: yTop }
+      case 'right':
+        return { x: xRight, y: yCenter }
+      case 'bottom-right':
+        return { x: xRight, y: yBottom }
+      case 'bottom':
+        return { x: xCenter, y: yBottom }
+      case 'bottom-left':
+        return { x: xLeft, y: yBottom }
+      case 'left':
+        return { x: xLeft, y: yCenter }
+      case 'center':
+      default:
+        return { x: xCenter, y: yCenter }
+    }
   }
   
   /**
@@ -1261,7 +1389,7 @@ export class RichText extends UI {
       case 'justify':
       case 'justify-letter':
         // 两端对齐（最后一行除外）
-        if (lineIdx < this._lines.length - 1 && line.chars.length > 1 && gap > 0) {
+        if (!this._paragraphEndLines.has(lineIdx) && line.chars.length > 1 && gap > 0) {
           // 将额外空间均分到字符间隔中
           const extraSpacing = gap / (line.chars.length - 1)
           return { alignOffset: 0, extraSpacing }
@@ -1661,8 +1789,8 @@ export class RichText extends UI {
     `
     
     textarea.value = String(this.text || '')
-    textarea.selectionStart = this.selectionStart
-    textarea.selectionEnd = this.selectionEnd
+    textarea.selectionStart = this._graphemeIndexToCodeUnit(this.selectionStart)
+    textarea.selectionEnd = this._graphemeIndexToCodeUnit(this.selectionEnd)
     
     document.body.appendChild(textarea)
     
@@ -1693,7 +1821,7 @@ export class RichText extends UI {
         if (!activeEl || activeEl === this._hiddenTextarea) return
         
         // 若用户正在操作面板输入控件，避免抢焦点
-        const inPanel = activeEl.closest?.('.panel')
+        const inPanel = activeEl.closest?.('[data-rt-panel]') || activeEl.closest?.('.panel')
         const isTextEntry = activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA'
         if (inPanel && isTextEntry) return
         
@@ -1721,11 +1849,59 @@ export class RichText extends UI {
     }
   }
   
+  /**
+   * 将 grapheme 索引转换为 UTF-16 code unit 索引（用于 textarea）
+   */
+  private _graphemeIndexToCodeUnit(graphemeIndex: number): number {
+    const text = String(this.text || '')
+    if (!text || graphemeIndex <= 0) return 0
+    
+    // 确保 graphemes 已初始化
+    if (!this._graphemes.length) {
+      this._updateGraphemes()
+    }
+    
+    if (graphemeIndex >= this._graphemes.length) return text.length
+    
+    let codeUnitIndex = 0
+    for (let i = 0; i < graphemeIndex && i < this._graphemes.length; i++) {
+      codeUnitIndex += this._graphemes[i].length
+    }
+    
+    return Math.min(codeUnitIndex, text.length)
+  }
+  
+  /**
+   * 将 UTF-16 code unit 索引转换为 grapheme 索引
+   */
+  private _codeUnitToGraphemeIndex(codeUnitIndex: number): number {
+    const text = String(this.text || '')
+    if (!text || codeUnitIndex <= 0) return 0
+    
+    // 确保 graphemes 已初始化
+    if (!this._graphemes.length) {
+      this._updateGraphemes()
+    }
+    
+    if (codeUnitIndex >= text.length) return this._graphemes.length
+    
+    let charCount = 0
+    let graphemeIndex = 0
+    
+    for (const grapheme of this._graphemes) {
+      if (charCount >= codeUnitIndex) break
+      charCount += grapheme.length
+      graphemeIndex++
+    }
+    
+    return Math.min(graphemeIndex, this._graphemes.length)
+  }
+  
   private _updateTextarea(): void {
     if (!this._hiddenTextarea || this._inComposition) return
     
-    this._hiddenTextarea.selectionStart = this.selectionStart
-    this._hiddenTextarea.selectionEnd = this.selectionEnd
+    this._hiddenTextarea.selectionStart = this._graphemeIndexToCodeUnit(this.selectionStart)
+    this._hiddenTextarea.selectionEnd = this._graphemeIndexToCodeUnit(this.selectionEnd)
     this._updateTextareaPosition()
   }
   
@@ -1737,8 +1913,8 @@ export class RichText extends UI {
     const oldText = String(this.text || '')
     
     if (newText === oldText) {
-      this.selectionStart = this._hiddenTextarea.selectionStart
-      this.selectionEnd = this._hiddenTextarea.selectionEnd
+      this.selectionStart = this._codeUnitToGraphemeIndex(this._hiddenTextarea.selectionStart)
+      this.selectionEnd = this._codeUnitToGraphemeIndex(this._hiddenTextarea.selectionEnd)
       return
     }
     
@@ -1780,8 +1956,8 @@ export class RichText extends UI {
     
     // 更新文本（会触发 _updateGraphemes 和 _splitLines）
     this.text = newText
-    this.selectionStart = this._hiddenTextarea.selectionStart
-    this.selectionEnd = this._hiddenTextarea.selectionEnd
+    this.selectionStart = this._codeUnitToGraphemeIndex(this._hiddenTextarea.selectionStart)
+    this.selectionEnd = this._codeUnitToGraphemeIndex(this._hiddenTextarea.selectionEnd)
     
     this.forceUpdate()
     this.forceRender()
@@ -2260,8 +2436,12 @@ export class RichText extends UI {
       this.forceRender()
     } else {
       const ta = this._hiddenTextarea
-      ta.value = ta.value.slice(0, pos) + text + ta.value.slice(this.selectionEnd)
-      ta.selectionStart = ta.selectionEnd = pos + graphemeSplit(text).length
+      const codeUnitPos = this._graphemeIndexToCodeUnit(pos)
+      const codeUnitEnd = this._graphemeIndexToCodeUnit(this.selectionEnd)
+      ta.value = ta.value.slice(0, codeUnitPos) + text + ta.value.slice(codeUnitEnd)
+      const newGraphemePos = pos + graphemeSplit(text).length
+      const newCodeUnitPos = this._graphemeIndexToCodeUnit(newGraphemePos)
+      ta.selectionStart = ta.selectionEnd = newCodeUnitPos
       this._onInput()
     }
   }

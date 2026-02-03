@@ -100,6 +100,37 @@ if (editor) {
 setTimeout(() => {
   richtext.enterEditing()
   
+  const linearGradient = {
+    type: 'linear',
+    from: 'left',
+    to: 'right',
+    stops: [
+      { offset: 0, color: '#ff4d4f' },
+      { offset: 0.5, color: '#ffa940' },
+      { offset: 1, color: '#52c41a' }
+    ]
+  }
+  
+  const radialGradient = {
+    type: 'radial',
+    from: 'center',
+    to: 'bottom-right',
+    stops: [
+      { offset: 0, color: '#1890ff' },
+      { offset: 1, color: '#722ed1' }
+    ]
+  }
+  
+  const verticalGradient = {
+    type: 'linear',
+    from: 'top',
+    to: 'bottom',
+    stops: [
+      { offset: 0, color: '#00c2ff' },
+      { offset: 1, color: '#0050b3' }
+    ]
+  }
+  
   // 测试混合字号基线对齐
   // "欢迎使用" - 大字号（验证基线对齐）
   richtext.selectionStart = 0
@@ -107,7 +138,7 @@ setTimeout(() => {
   richtext.setSelectionStyles({
     fontSize: 48,  // 大字号
     fontWeight: 'bold',
-    fill: '#ff0000'
+    fill: linearGradient as any
   })
   
   // "RichText" - 小字号（应该与大字在同一基线上）
@@ -115,7 +146,7 @@ setTimeout(() => {
   richtext.selectionEnd = 13
   richtext.setSelectionStyles({
     fontSize: 16,  // 小字号
-    fill: '#0066ff',
+    fill: radialGradient as any,
     italic: true
   })
   
@@ -125,7 +156,7 @@ setTimeout(() => {
   richtext.setSelectionStyles({
     fontSize: 32,
     textDecoration: 'under',
-    fill: '#00aa00',
+    fill: verticalGradient as any,
     fontWeight: 'bold'
   })
   
@@ -461,13 +492,16 @@ btnAddText.addEventListener('click', () => {
   const newText = new RichText({
     x: 100,
     y: 450,
-    text: '测试固定宽度换行：这是测试文本',
+    text: '📢 各位老铁好~为了帮助各位高粉达人有更高的播放和转化收益，我们将在官方剧单内从不同维度设置五个榜单，且每日更新；并针对榜单剧进行额外的现金激励。\n具体激励规则如下：',
     fontSize: 20,
-    fill: '#666',
+    fill: [{
+      type: 'solid',
+      color: '#666'
+    }],
     editable: true,
     
     // 固定宽度，自动高度（测试编辑时换行）
-    width: 300,
+    width: 664,
     autoWidth: false,  // 固定宽度
     autoHeight: true,  // 高度自动
     

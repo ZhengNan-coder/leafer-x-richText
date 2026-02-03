@@ -14,7 +14,7 @@ Leafer 富文本插件：支持按字符设置样式的可编辑文本元素，�
 ### 完整的 Leafer 文本样式支持
 
 #### 字符级样式（可对选中文字单独设置）
-- **基础样式**：`fontSize`, `fontFamily`, `fontWeight`, `fill`, `italic`
+- **基础样式**：`fontSize`, `fontFamily`, `fontWeight`, `fill`（纯色/渐变）, `italic`
 - **文本格式**：`textCase`（大小写转换）, `textDecoration`（下划线/删除线）
 - **字间距**：`letterSpacing`（支持数字或百分比）
 - **背景**：`textBackgroundColor`
@@ -117,6 +117,24 @@ app.tree.add(styledText)
 1. **进入编辑**：双击文本（或代码中调用 `richtext.enterEditing()`）
 2. **选区**：在编辑状态下拖拽或 Shift+方向键
 3. **设置选区样式**：选区后调用 `richtext.setSelectionStyles({ fill, fontSize, fontWeight, ... })`
+
+### 渐变填充示例
+
+`fill` 支持 Leafer `IFill`，可用纯色或渐变：
+
+```ts
+const linearGradient = {
+  type: 'linear',
+  from: 'left',
+  to: 'right',
+  stops: [
+    { offset: 0, color: '#ff4d4f' },
+    { offset: 1, color: '#52c41a' }
+  ]
+}
+
+richtext.setSelectionStyles({ fill: linearGradient })
+```
 4. **设置整段样式**：选中元素（不进入编辑），调用 `richtext.setFullTextStyles({ fontWeight: 'bold' })`，只修改指定属性
 5. **退出编辑**：ESC 或点击空白（或 `richtext.exitEditing()`）
 
@@ -227,7 +245,7 @@ install()  // 仅当未通过主入口 "leafer-x-richText" 引入时需调用
 | `fontSize` | `number` | `16` | 字号 |
 | `fontFamily` | `string` | `'Arial, sans-serif'` | 字体 |
 | `fontWeight` | `IFontWeight` | `'normal'` | 字重（normal/bold/100-900） |
-| `fill` | `string` | `'#000000'` | 填充色 |
+| `fill` | `IFill` | `'#000000'` | 填充色（纯色/渐变/图像） |
 | `italic` | `boolean` | `false` | 是否斜体 |
 | `textCase` | `ITextCase` | `'none'` | 大小写（none/upper/lower/title） |
 | `textDecoration` | `ITextDecoration` | `'none'` | 装饰线（none/under/delete/under-delete） |
@@ -286,7 +304,7 @@ interface IStyleRange {
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
-  fill?: string
+  fill?: IFill
   italic?: boolean
   
   // 文本格式
@@ -308,7 +326,7 @@ interface IStyleRange {
 ```ts
 interface ICharStyle {
   // 基础样式
-  fill?: string
+  fill?: IFill
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
