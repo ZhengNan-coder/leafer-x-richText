@@ -1880,7 +1880,14 @@ export class RichText extends UI {
       this._updateGraphemes()
     }
     
-    return this._graphemeIndexToCodeUnitWith(text, this._graphemes, graphemeIndex)
+    if (graphemeIndex >= this._graphemes.length) return text.length
+    
+    let codeUnitIndex = 0
+    for (let i = 0; i < graphemeIndex && i < this._graphemes.length; i++) {
+      codeUnitIndex += this._graphemes[i].length
+    }
+    
+    return Math.min(codeUnitIndex, text.length)
   }
   
   /**
@@ -1895,25 +1902,23 @@ export class RichText extends UI {
       this._updateGraphemes()
     }
     
-    return this._codeUnitToGraphemeIndexWith(text, this._graphemes, codeUnitIndex)
-  }
-  
-  private _graphemeIndexToCodeUnitWith(text: string, graphemes: string[], graphemeIndex: number): number {
-    if (!text || graphemeIndex <= 0) return 0
-    if (!graphemes.length) return Math.min(graphemeIndex, text.length)
-    if (graphemeIndex >= graphemes.length) return text.length
+    if (codeUnitIndex >= text.length) return this._graphemes.length
     
-    let codeUnitIndex = 0
-    for (let i = 0; i < graphemeIndex && i < graphemes.length; i++) {
-      codeUnitIndex += graphemes[i].length
+    let charCount = 0
+    let graphemeIndex = 0
+    
+    for (const grapheme of this._graphemes) {
+      if (charCount >= codeUnitIndex) break
+      charCount += grapheme.length
+      graphemeIndex++
     }
     
-    return Math.min(codeUnitIndex, text.length)
+    return Math.min(graphemeIndex, this._graphemes.length)
   }
   
   private _codeUnitToGraphemeIndexWith(text: string, graphemes: string[], codeUnitIndex: number): number {
     if (!text || codeUnitIndex <= 0) return 0
-    if (!graphemes.length) return Math.min(codeUnitIndex, text.length)
+    if (!graphemes.length) return 0
     if (codeUnitIndex >= text.length) return graphemes.length
     
     let charCount = 0
@@ -1962,8 +1967,6 @@ export class RichText extends UI {
     // 文本 diff + 样式迁移（参考 Fabric 思路）
     const oldG = this._graphemes
     const newG = graphemeSplit(newText)
-    const selectionStart = this._codeUnitToGraphemeIndexWith(newText, newG, this._hiddenTextarea.selectionStart)
-    const selectionEnd = this._codeUnitToGraphemeIndexWith(newText, newG, this._hiddenTextarea.selectionEnd)
     
     // 找出公共前缀
     let prefix = 0
@@ -1989,8 +1992,8 @@ export class RichText extends UI {
     
     // 更新文本（会触发 _updateGraphemes 和 _splitLines）
     this.text = newText
-    this.selectionStart = selectionStart
-    this.selectionEnd = selectionEnd
+    this.selectionStart = this._codeUnitToGraphemeIndexWith(newText, newG, this._hiddenTextarea.selectionStart)
+    this.selectionEnd = this._codeUnitToGraphemeIndexWith(newText, newG, this._hiddenTextarea.selectionEnd)
     
     this.forceUpdate()
     this.forceRender()
@@ -2472,9 +2475,7 @@ export class RichText extends UI {
       const codeUnitPos = this._graphemeIndexToCodeUnit(pos)
       const codeUnitEnd = this._graphemeIndexToCodeUnit(this.selectionEnd)
       ta.value = ta.value.slice(0, codeUnitPos) + text + ta.value.slice(codeUnitEnd)
-      const newGraphemePos = pos + graphemeSplit(text).length
-      const newG = graphemeSplit(ta.value)
-      const newCodeUnitPos = this._graphemeIndexToCodeUnitWith(ta.value, newG, newGraphemePos)
+      const newCodeUnitPos = codeUnitPos + text.length
       ta.selectionStart = ta.selectionEnd = newCodeUnitPos
       this._onInput()
     }
