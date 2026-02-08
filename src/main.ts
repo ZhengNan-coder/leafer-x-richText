@@ -138,7 +138,9 @@ setTimeout(() => {
   richtext.setSelectionStyles({
     fontSize: 48,  // 大字号
     fontWeight: 'bold',
-    fill: linearGradient as any
+    fill: linearGradient as any,
+    stroke: { type: 'solid', color: '#000000' } as any,
+    strokeWidth: 2
   })
   
   // "RichText" - 小字号（应该与大字在同一基线上）
@@ -173,6 +175,27 @@ setTimeout(() => {
 const fontSizeInput = document.getElementById('fontSize') as HTMLInputElement
 const fontFamilyInput = document.getElementById('fontFamily') as HTMLInputElement
 const fillInput = document.getElementById('fill') as HTMLInputElement
+const strokeColorInput = document.getElementById('strokeColor') as HTMLInputElement
+const strokeWidthInput = document.getElementById('strokeWidth') as HTMLInputElement
+const strokeAlignSelect = document.getElementById('strokeAlign') as HTMLSelectElement
+const strokeCapSelect = document.getElementById('strokeCap') as HTMLSelectElement
+const strokeJoinSelect = document.getElementById('strokeJoin') as HTMLSelectElement
+const dashPatternInput = document.getElementById('dashPattern') as HTMLInputElement
+const dashOffsetInput = document.getElementById('dashOffset') as HTMLInputElement
+const shadowEnabled = document.getElementById('shadowEnabled') as HTMLInputElement
+const shadowColor = document.getElementById('shadowColor') as HTMLInputElement
+const shadowBlur = document.getElementById('shadowBlur') as HTMLInputElement
+const shadowOffsetX = document.getElementById('shadowOffsetX') as HTMLInputElement
+const shadowOffsetY = document.getElementById('shadowOffsetY') as HTMLInputElement
+const shadowSpread = document.getElementById('shadowSpread') as HTMLInputElement
+const shadowBlend = document.getElementById('shadowBlend') as HTMLSelectElement
+const innerShadowEnabled = document.getElementById('innerShadowEnabled') as HTMLInputElement
+const innerShadowColor = document.getElementById('innerShadowColor') as HTMLInputElement
+const innerShadowBlur = document.getElementById('innerShadowBlur') as HTMLInputElement
+const innerShadowOffsetX = document.getElementById('innerShadowOffsetX') as HTMLInputElement
+const innerShadowOffsetY = document.getElementById('innerShadowOffsetY') as HTMLInputElement
+const innerShadowSpread = document.getElementById('innerShadowSpread') as HTMLInputElement
+const innerShadowBlend = document.getElementById('innerShadowBlend') as HTMLSelectElement
 const letterSpacingInput = document.getElementById('letterSpacing') as HTMLInputElement
 const lineHeightInput = document.getElementById('lineHeight') as HTMLInputElement
 const textAlignSelect = document.getElementById('textAlign') as HTMLSelectElement
@@ -196,12 +219,74 @@ const debugModeCheckbox = document.getElementById('debugMode') as HTMLInputEleme
 const selectionInfo = document.getElementById('selectionInfo')!
 
 // 根据当前选中的 RichText 更新面板控件
+function getSolidColor(paint: any, fallback = '#000000'): string {
+  if (!paint) return fallback
+  if (typeof paint === 'string') return paint
+  if (Array.isArray(paint)) return getSolidColor(paint[0], fallback)
+  if (typeof paint === 'object') {
+    if ('color' in paint) return String(paint.color)
+    if ('type' in paint && paint.type === 'solid' && 'color' in paint) return String(paint.color)
+  }
+  return fallback
+}
+
+function colorToHex(color: any, fallback = '#000000'): string {
+  if (!color) return fallback
+  if (typeof color === 'string') return color
+  if (typeof color === 'object' && 'r' in color && 'g' in color && 'b' in color) {
+    const toHex = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')
+    return `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`
+  }
+  return fallback
+}
+
+function pickFirstEffect(shadow: any): any | null {
+  if (!shadow) return null
+  const first = Array.isArray(shadow) ? shadow[0] : shadow
+  return first || null
+}
+
+function buildShadowFromPanel(kind: 'outer' | 'inner'): any | undefined {
+  const enabled = kind === 'outer' ? shadowEnabled.checked : innerShadowEnabled.checked
+  if (!enabled) return undefined
+  const color = kind === 'outer' ? shadowColor.value : innerShadowColor.value
+  const blur = parseFloat(kind === 'outer' ? shadowBlur.value : innerShadowBlur.value) || 0
+  const x = parseFloat(kind === 'outer' ? shadowOffsetX.value : innerShadowOffsetX.value) || 0
+  const y = parseFloat(kind === 'outer' ? shadowOffsetY.value : innerShadowOffsetY.value) || 0
+  const spread = parseFloat(kind === 'outer' ? shadowSpread.value : innerShadowSpread.value) || 0
+  const blendMode = kind === 'outer' ? shadowBlend.value : innerShadowBlend.value
+  const result: any = { color, blur, x, y, spread }
+  if (blendMode) result.blendMode = blendMode
+  return result
+}
+
 function updatePanelFromRichText(rt: RichText | null): void {
-  if (!fontSizeInput || !fillInput || !fontFamilyInput) return
+  if (!fontSizeInput || !fillInput || !fontFamilyInput || !strokeColorInput || !strokeWidthInput) return
   if (!rt) {
     fontSizeInput.value = '24'
     fillInput.value = '#333333'
     fontFamilyInput.value = 'Arial'
+    strokeColorInput.value = '#000000'
+    strokeWidthInput.value = '0'
+    strokeAlignSelect.value = 'outside'
+    strokeCapSelect.value = 'none'
+    strokeJoinSelect.value = 'miter'
+    dashPatternInput.value = ''
+    dashOffsetInput.value = '0'
+    shadowEnabled.checked = false
+    shadowColor.value = '#000000'
+    shadowBlur.value = '8'
+    shadowOffsetX.value = '0'
+    shadowOffsetY.value = '4'
+    shadowSpread.value = '0'
+    shadowBlend.value = ''
+    innerShadowEnabled.checked = false
+    innerShadowColor.value = '#000000'
+    innerShadowBlur.value = '8'
+    innerShadowOffsetX.value = '0'
+    innerShadowOffsetY.value = '4'
+    innerShadowSpread.value = '0'
+    innerShadowBlend.value = ''
     letterSpacingInput.value = '0'
     lineHeightInput.value = '1.5'
     textAlignSelect.value = 'left'
@@ -230,8 +315,33 @@ function updatePanelFromRichText(rt: RichText | null): void {
   
   // 基础样式
   fontSizeInput.value = String(s.fontSize ?? rt.fontSize ?? 24)
-  fillInput.value = (s.fill ?? rt.fill ?? '#333').toString().slice(0, 7)
+  fillInput.value = getSolidColor(s.fill ?? rt.fill ?? '#333').slice(0, 7)
   fontFamilyInput.value = (s.fontFamily ?? rt.fontFamily ?? 'Arial') as string
+  strokeColorInput.value = getSolidColor((s as any).stroke ?? (rt as any).stroke ?? '#000').slice(0, 7)
+  strokeWidthInput.value = String((s as any).strokeWidth ?? (rt as any).strokeWidth ?? 0)
+  strokeAlignSelect.value = String((s as any).strokeAlign ?? (rt as any).strokeAlign ?? 'outside')
+  strokeCapSelect.value = String((s as any).strokeCap ?? (rt as any).strokeCap ?? 'none')
+  strokeJoinSelect.value = String((s as any).strokeJoin ?? (rt as any).strokeJoin ?? 'miter')
+  dashPatternInput.value = ((s as any).dashPattern ?? (rt as any).dashPattern ?? []).join(',')
+  dashOffsetInput.value = String((s as any).dashOffset ?? (rt as any).dashOffset ?? 0)
+  
+  const outerShadow = pickFirstEffect((s as any).shadow ?? (rt as any).shadow)
+  shadowEnabled.checked = !!outerShadow
+  shadowColor.value = colorToHex(outerShadow?.color, '#000000')
+  shadowBlur.value = String(outerShadow?.blur ?? 8)
+  shadowOffsetX.value = String(outerShadow?.x ?? 0)
+  shadowOffsetY.value = String(outerShadow?.y ?? 4)
+  shadowSpread.value = String(outerShadow?.spread ?? 0)
+  shadowBlend.value = String(outerShadow?.blendMode ?? '')
+  
+  const innerShadow = pickFirstEffect((s as any).innerShadow ?? (rt as any).innerShadow)
+  innerShadowEnabled.checked = !!innerShadow
+  innerShadowColor.value = colorToHex(innerShadow?.color, '#000000')
+  innerShadowBlur.value = String(innerShadow?.blur ?? 8)
+  innerShadowOffsetX.value = String(innerShadow?.x ?? 0)
+  innerShadowOffsetY.value = String(innerShadow?.y ?? 4)
+  innerShadowSpread.value = String(innerShadow?.spread ?? 0)
+  innerShadowBlend.value = String(innerShadow?.blendMode ?? '')
   
   // 新属性
   const letterSpacing = s.letterSpacing ?? rt.letterSpacing ?? 0
@@ -302,6 +412,71 @@ fillInput.addEventListener('input', () => {
   applyStyle({ fill: fillInput.value })
   refocusTextarea()
 })
+
+strokeColorInput.addEventListener('input', () => {
+  const color = strokeColorInput.value
+  applyStyle({ stroke: { type: 'solid', color } } as any)
+  refocusTextarea()
+})
+
+strokeWidthInput.addEventListener('input', () => {
+  const width = parseFloat(strokeWidthInput.value || '0')
+  applyStyle({ strokeWidth: width } as any)
+  refocusTextarea()
+})
+
+strokeAlignSelect.addEventListener('change', () => {
+  applyStyle({ strokeAlign: strokeAlignSelect.value } as any)
+  refocusTextarea()
+})
+
+strokeCapSelect.addEventListener('change', () => {
+  applyStyle({ strokeCap: strokeCapSelect.value } as any)
+  refocusTextarea()
+})
+
+strokeJoinSelect.addEventListener('change', () => {
+  applyStyle({ strokeJoin: strokeJoinSelect.value } as any)
+  refocusTextarea()
+})
+
+dashPatternInput.addEventListener('input', () => {
+  const raw = dashPatternInput.value.trim()
+  const pattern = raw ? raw.split(',').map(v => parseFloat(v)).filter(v => !Number.isNaN(v)) : []
+  applyStyle({ dashPattern: pattern.length ? pattern : undefined } as any)
+  refocusTextarea()
+})
+
+dashOffsetInput.addEventListener('input', () => {
+  const offset = parseFloat(dashOffsetInput.value || '0')
+  applyStyle({ dashOffset: offset } as any)
+  refocusTextarea()
+})
+
+function applyShadowFromPanel(kind: 'outer' | 'inner') {
+  const shadow = buildShadowFromPanel(kind)
+  if (kind === 'outer') {
+    applyStyle({ shadow } as any)
+  } else {
+    applyStyle({ innerShadow: shadow } as any)
+  }
+  refocusTextarea()
+}
+
+shadowEnabled.addEventListener('change', () => applyShadowFromPanel('outer'))
+shadowColor.addEventListener('input', () => applyShadowFromPanel('outer'))
+shadowBlur.addEventListener('input', () => applyShadowFromPanel('outer'))
+shadowOffsetX.addEventListener('input', () => applyShadowFromPanel('outer'))
+shadowOffsetY.addEventListener('input', () => applyShadowFromPanel('outer'))
+shadowSpread.addEventListener('input', () => applyShadowFromPanel('outer'))
+shadowBlend.addEventListener('change', () => applyShadowFromPanel('outer'))
+innerShadowEnabled.addEventListener('change', () => applyShadowFromPanel('inner'))
+innerShadowColor.addEventListener('input', () => applyShadowFromPanel('inner'))
+innerShadowBlur.addEventListener('input', () => applyShadowFromPanel('inner'))
+innerShadowOffsetX.addEventListener('input', () => applyShadowFromPanel('inner'))
+innerShadowOffsetY.addEventListener('input', () => applyShadowFromPanel('inner'))
+innerShadowSpread.addEventListener('input', () => applyShadowFromPanel('inner'))
+innerShadowBlend.addEventListener('change', () => applyShadowFromPanel('inner'))
 
 btnBold.addEventListener('click', () => {
   const rt = getCurrentRichText()
@@ -499,6 +674,13 @@ btnAddText.addEventListener('click', () => {
       color: '#666'
     }],
     editable: true,
+    shadow: {
+      color: '#000000',
+      blur: 8,
+      x: 0,
+      y: 4,
+      spread: 0
+    },
     
     // 固定宽度，自动高度（测试编辑时换行）
     width: 664,

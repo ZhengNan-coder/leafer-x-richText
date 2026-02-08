@@ -12,8 +12,7 @@ import type {
   IOverflow,
   ITextAlign,
   IVerticalAlign,
-  IFill,
-  IColor
+  IFill
 } from 'leafer-ui'
 
 // 重新导出类型供外部使用
@@ -36,6 +35,16 @@ export type {
 export interface ICharStyle {
   // 基础样式
   fill?: IFill  // 与 Leafer 对齐：支持纯色、渐变、图像
+  stroke?: any
+  strokeWidth?: number
+  strokeAlign?: 'inside' | 'center' | 'outside'
+  strokeWidthFixed?: boolean
+  strokeCap?: 'none' | 'round' | 'square'
+  strokeJoin?: 'miter' | 'bevel' | 'round'
+  dashPattern?: number[]
+  dashOffset?: number
+  shadow?: any
+  innerShadow?: any
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
@@ -85,7 +94,17 @@ export interface IRichTextInputData extends IUIInputData {
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
-  fill?: IFill  // 与 Leafer 对齐
+  fill?: any  // 与 Leafer 对齐，避免 IUIData 类型冲突
+  stroke?: any
+  strokeWidth?: number
+  strokeAlign?: 'inside' | 'center' | 'outside'
+  strokeWidthFixed?: boolean
+  strokeCap?: 'none' | 'round' | 'square'
+  strokeJoin?: 'miter' | 'bevel' | 'round'
+  dashPattern?: number[]
+  dashOffset?: number
+  shadow?: any
+  innerShadow?: any
   italic?: boolean
   
   // 文本格式
@@ -137,14 +156,24 @@ export interface IRichTextInputData extends IUIInputData {
  * RichText 数据（计算数据）
  * 注意：letterSpacing 和 lineHeight 保持 number | IUnitData 以支持灵活输入
  */
-export interface IRichTextData extends IUIData {
+export interface IRichTextData extends Omit<IUIData, 'fill' | 'stroke' | 'letterSpacing' | 'lineHeight'> {
   text?: string
   
   // 基础字符样式
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight
-  fill?: IFill  // 与 Leafer 对齐
+  fill?: any  // 与 Leafer 对齐，避免 IUIData 类型冲突
+  stroke?: any
+  strokeWidth?: number
+  strokeAlign?: 'inside' | 'center' | 'outside'
+  strokeWidthFixed?: boolean
+  strokeCap?: 'none' | 'round' | 'square'
+  strokeJoin?: 'miter' | 'bevel' | 'round'
+  dashPattern?: number[]
+  dashOffset?: number
+  shadow?: any
+  innerShadow?: any
   italic?: boolean
   
   // 文本格式
@@ -201,6 +230,14 @@ export interface IStyleRange {
   fontFamily?: string
   fontWeight?: IFontWeight
   fill?: IFill
+  stroke?: any
+  strokeWidth?: number
+  strokeAlign?: 'inside' | 'center' | 'outside'
+  strokeWidthFixed?: boolean
+  strokeCap?: 'none' | 'round' | 'square'
+  strokeJoin?: 'miter' | 'bevel' | 'round'
+  dashPattern?: number[]
+  dashOffset?: number
   italic?: boolean
   
   // 文本格式

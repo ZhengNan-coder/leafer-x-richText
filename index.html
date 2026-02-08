@@ -137,6 +137,135 @@
         <label>文字颜色</label>
         <input type="color" id="fill" value="#000000">
       </div>
+      
+      <div class="control-group">
+        <label>描边颜色</label>
+        <input type="color" id="strokeColor" value="#000000">
+      </div>
+      
+      <div class="control-group">
+        <label>描边宽度</label>
+        <input type="number" id="strokeWidth" value="0" min="0" max="20" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>描边对齐</label>
+        <select id="strokeAlign">
+          <option value="outside">外部</option>
+          <option value="center">居中</option>
+          <option value="inside">内部</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <label>描边端点</label>
+        <select id="strokeCap">
+          <option value="none">无</option>
+          <option value="round">圆角</option>
+          <option value="square">方角</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <label>描边拐角</label>
+        <select id="strokeJoin">
+          <option value="miter">直角</option>
+          <option value="bevel">平角</option>
+          <option value="round">圆角</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <label>虚线间隔</label>
+        <input type="text" id="dashPattern" value="" placeholder="例如 6,4">
+      </div>
+      
+      <div class="control-group">
+        <label>虚线偏移</label>
+        <input type="number" id="dashOffset" value="0" min="0" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>外阴影</label>
+        <input type="checkbox" id="shadowEnabled">
+      </div>
+      
+      <div class="control-group">
+        <label>外阴影颜色</label>
+        <input type="color" id="shadowColor" value="#000000">
+      </div>
+      
+      <div class="control-group">
+        <label>外阴影模糊</label>
+        <input type="number" id="shadowBlur" value="8" min="0" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>外阴影偏移X</label>
+        <input type="number" id="shadowOffsetX" value="0" min="-100" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>外阴影偏移Y</label>
+        <input type="number" id="shadowOffsetY" value="4" min="-100" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>外阴影扩展</label>
+        <input type="number" id="shadowSpread" value="0" min="0" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>外阴影混合</label>
+        <select id="shadowBlend">
+          <option value="">默认</option>
+          <option value="source-over">source-over</option>
+          <option value="multiply">multiply</option>
+          <option value="screen">screen</option>
+          <option value="overlay">overlay</option>
+        </select>
+      </div>
+      
+      <div class="control-group">
+        <label>内阴影</label>
+        <input type="checkbox" id="innerShadowEnabled">
+      </div>
+      
+      <div class="control-group">
+        <label>内阴影颜色</label>
+        <input type="color" id="innerShadowColor" value="#000000">
+      </div>
+      
+      <div class="control-group">
+        <label>内阴影模糊</label>
+        <input type="number" id="innerShadowBlur" value="8" min="0" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>内阴影偏移X</label>
+        <input type="number" id="innerShadowOffsetX" value="0" min="-100" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>内阴影偏移Y</label>
+        <input type="number" id="innerShadowOffsetY" value="4" min="-100" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>内阴影扩展</label>
+        <input type="number" id="innerShadowSpread" value="0" min="0" max="100" step="1">
+      </div>
+      
+      <div class="control-group">
+        <label>内阴影混合</label>
+        <select id="innerShadowBlend">
+          <option value="">默认</option>
+          <option value="source-over">source-over</option>
+          <option value="multiply">multiply</option>
+          <option value="screen">screen</option>
+          <option value="overlay">overlay</option>
+        </select>
+      </div>
 
       <div class="control-group">
         <label>样式</label>

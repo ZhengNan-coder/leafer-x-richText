@@ -10,7 +10,8 @@ import type {
   IVerticalAlign,
   IAxis,
   IUnitData,
-  IFill
+  IFill,
+  IStroke
 } from 'leafer-ui'
 import { RichTextData } from './RichTextData'
 import type { 
@@ -51,6 +52,36 @@ export class RichText extends UI {
   
   @surfaceType(RICHTEXT_DEFAULTS.fill)
   declare public fill: IFill
+  
+  @surfaceType(RICHTEXT_DEFAULTS.stroke)
+  declare public stroke: IStroke
+  
+  @boundsType(RICHTEXT_DEFAULTS.strokeWidth)
+  declare public strokeWidth: number
+  
+  @boundsType(RICHTEXT_DEFAULTS.strokeAlign)
+  declare public strokeAlign: 'inside' | 'center' | 'outside'
+  
+  @boundsType(RICHTEXT_DEFAULTS.strokeWidthFixed)
+  declare public strokeWidthFixed: boolean
+  
+  @boundsType(RICHTEXT_DEFAULTS.strokeCap)
+  declare public strokeCap: 'none' | 'round' | 'square'
+  
+  @boundsType(RICHTEXT_DEFAULTS.strokeJoin)
+  declare public strokeJoin: 'miter' | 'bevel' | 'round'
+  
+  @boundsType(RICHTEXT_DEFAULTS.dashPattern)
+  declare public dashPattern: number[] | undefined
+  
+  @boundsType(RICHTEXT_DEFAULTS.dashOffset)
+  declare public dashOffset: number
+  
+  @surfaceType(RICHTEXT_DEFAULTS.shadow)
+  declare public shadow: any
+  
+  @surfaceType(RICHTEXT_DEFAULTS.innerShadow)
+  declare public innerShadow: any
   
   @boundsType(RICHTEXT_DEFAULTS.italic)
   declare public italic: boolean
@@ -163,6 +194,8 @@ export class RichText extends UI {
   private _lastScaleSignY = 1
   private _needsFlipRenderBounds = false
   private _lastWorldRenderBounds: { x: number; y: number; width: number; height: number } | null = null
+  private _shadowCanvas: HTMLCanvasElement | null = null
+  private _shadowCtx: CanvasRenderingContext2D | null = null
   
   // 选区锚点（用于 Shift 扩展选区）
   private _selectionAnchor: number | null = null
@@ -289,14 +322,19 @@ export class RichText extends UI {
     const { renderBounds, boxBounds } = this.__layout
     if (!renderBounds) return
     
+    // 基础边界：textOverflow='show' 时用内容边界，否则用 boxBounds
     const baseBounds = this.textOverflow === 'show'
       ? this._getContentRenderBounds()
       : boxBounds
     
-    renderBounds.x = baseBounds.x
-    renderBounds.y = baseBounds.y
-    renderBounds.width = baseBounds.width
-    renderBounds.height = baseBounds.height
+    // 阴影扩展：无论 textOverflow 如何，renderBounds 必须包含阴影
+    // 与 Leafer 官方 Text 一致：阴影不受 textOverflow 影响
+    const shadowExpand = this._getContentShadowExpand()
+    
+    renderBounds.x = baseBounds.x - shadowExpand
+    renderBounds.y = baseBounds.y - shadowExpand
+    renderBounds.width = baseBounds.width + shadowExpand * 2
+    renderBounds.height = baseBounds.height + shadowExpand * 2
     
     this._updateFlipRenderFlag()
     
@@ -365,11 +403,13 @@ export class RichText extends UI {
       maxY = 0
     }
     
+    const strokeExpand = this._getStrokeExpand()
+    // 注意：阴影扩展由 __updateRenderBounds 统一处理，这里只处理描边
     return {
-      x: minX + padding.left,
-      y: minY + padding.top,
-      width: (maxX - minX) + padding.left + padding.right,
-      height: (maxY - minY) + padding.top + padding.bottom
+      x: minX + padding.left - strokeExpand,
+      y: minY + padding.top - strokeExpand,
+      width: (maxX - minX) + padding.left + padding.right + strokeExpand * 2,
+      height: (maxY - minY) + padding.top + padding.bottom + strokeExpand * 2
     }
   }
 
@@ -836,13 +876,14 @@ export class RichText extends UI {
   private _getTextBounds(): { width: number; height: number } {
     const padding = this._parsePadding(this.padding)
     const layoutWidth = Math.abs(this.width || 0)
+    const strokeExpand = this._getStrokeExpand()
     
     if (!this._lineMetrics.length) {
       const baseHeight = this.fontSize * (typeof this.lineHeight === 'number' ? this.lineHeight : RICHTEXT_DEFAULTS.lineHeight)
       const baseWidth = this.autoWidth ? 100 : (layoutWidth || 100)
       return { 
-        width: baseWidth + padding.left + padding.right, 
-        height: baseHeight + padding.top + padding.bottom 
+        width: baseWidth + padding.left + padding.right + strokeExpand * 2, 
+        height: baseHeight + padding.top + padding.bottom + strokeExpand * 2
       }
     }
     
@@ -865,8 +906,8 @@ export class RichText extends UI {
     const totalHeight = this._lineMetrics.reduce((sum, line) => sum + line.height, 0)
     
     return { 
-      width: finalWidth + padding.left + padding.right || 100, 
-      height: totalHeight + padding.top + padding.bottom || this.fontSize * RICHTEXT_DEFAULTS.lineHeight 
+      width: finalWidth + padding.left + padding.right + strokeExpand * 2 || 100, 
+      height: totalHeight + padding.top + padding.bottom + strokeExpand * 2 || this.fontSize * RICHTEXT_DEFAULTS.lineHeight 
     }
   }
   
@@ -879,6 +920,16 @@ export class RichText extends UI {
     // 基础样式（从元素属性获取默认值，字符级样式可覆盖）
     const result: ICharStyle = {
       fill: this.fill,
+      stroke: this.stroke,
+      strokeWidth: this.strokeWidth,
+      strokeAlign: this.strokeAlign,
+      strokeWidthFixed: this.strokeWidthFixed,
+      strokeCap: this.strokeCap,
+      strokeJoin: this.strokeJoin,
+      dashPattern: this.dashPattern,
+      dashOffset: this.dashOffset,
+      shadow: (this as any).shadow,
+      innerShadow: (this as any).innerShadow,
       fontSize: this.fontSize,
       fontFamily: this.fontFamily,
       fontWeight: this.fontWeight as any,
@@ -998,109 +1049,24 @@ export class RichText extends UI {
     const shouldClip = this.textOverflow === 'hide' || (typeof this.textOverflow === 'string' && this.textOverflow !== 'show')
     const hasFixedSize = (Math.abs(this.width || 0) > 0 && !this.autoWidth) || (Math.abs(this.height || 0) > 0 && !this.autoHeight)
     
+    const gradientBounds = this.textOverflow === 'show'
+      ? this._getContentRenderBounds()
+      : this.__layout.boxBounds
+    
+    // ========== 阶段1：在 clip 之外绘制外阴影 ==========
+    // 与 Leafer 官方 Text 一致：阴影不受 textOverflow 裁剪影响
+    this._drawTextShadows(ctx, padding, gradientBounds)
+    
+    // ========== 阶段2：设置 clip（如果需要），绘制文字/描边/内阴影 ==========
     if (shouldClip && hasFixedSize) {
       ctx.save()
-      // 裁剪到内容区域
       const { width, height } = this.__layout.boxBounds
       ctx.beginPath()
       ctx.rect(0, 0, width, height)
       ctx.clip()
     }
     
-    const gradientBounds = this.textOverflow === 'show'
-      ? this._getContentRenderBounds()
-      : this.__layout.boxBounds
-    
-    for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
-      const line = this._lineMetrics[lineIdx]
-      
-      // ✅ Figma 标准：计算行的统一基线位置（所有字符共享，无论字号大小）
-      const maxFontSize = line.chars.length > 0
-        ? Math.max(...line.chars.map(c => c.style.fontSize!))
-        : this.fontSize
-      
-      // Figma 行为：lineHeight 产生的额外空间上下均分
-      // 例如：fontSize=24, lineHeight=1.8, 实际行高=43.2
-      // 额外空间 = 43.2 - 24 = 19.2
-      // 上间距 = 19.2 / 2 = 9.6
-      // 基线 = 行顶部 + 上间距 + ascent
-      const leading = line.height - maxFontSize  // 额外空间（leading）
-      const topSpacing = leading / 2  // 上间距
-      const ascent = maxFontSize * 0.85  // 字符的 ascent 部分
-      const baseline = line.y + topSpacing + ascent  // 共享基线
-      
-      // 调试模式：绘制基线和行框
-      if (this.debugMode) {
-        ctx.save()
-        
-        // 绘制行框
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)'
-        ctx.lineWidth = 1
-        ctx.strokeRect(padding.left, line.y + padding.top, 500, line.height)
-        
-        // 绘制基线
-        ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)'
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(padding.left, baseline + padding.top)
-        ctx.lineTo(padding.left + 500, baseline + padding.top)
-        ctx.stroke()
-        
-        // 绘制上间距标记
-        ctx.fillStyle = 'rgba(255, 255, 0, 0.2)'
-        ctx.fillRect(padding.left, line.y + padding.top, 10, topSpacing)
-        
-        // 绘制 ascent 区域标记
-        ctx.fillStyle = 'rgba(0, 255, 255, 0.2)'
-        ctx.fillRect(padding.left, line.y + topSpacing + padding.top, 10, ascent)
-        
-        ctx.restore()
-      }
-      
-      for (let charIdx = 0; charIdx < line.chars.length; charIdx++) {
-        const char = line.chars[charIdx]
-        const { x, style } = char
-        
-        // 字符位置已在 _measureText 中计算好（包含对齐和两端对齐）
-        const finalX = x + padding.left
-        
-        // ✅ Figma 标准：所有字符使用相同的基线，不做偏移
-        // 小字和大字都对齐在同一基线上，小字的顶部会比大字高
-        const finalY = baseline + padding.top
-        
-        ctx.save()
-        
-        // 背景色（需要根据字符实际高度计算）
-        if (style.textBackgroundColor) {
-          // 背景高度使用字符自身的字号计算
-          const charAscent = style.fontSize! * 0.85
-          const charDescent = style.fontSize! * 0.15
-          const bgY = baseline - charAscent  // 字符顶部（相对于基线）
-          const bgHeight = charAscent + charDescent  // 字符总高度
-          
-          ctx.fillStyle = style.textBackgroundColor
-          ctx.fillRect(finalX, bgY + padding.top, char.width, bgHeight)
-        }
-        
-        // 应用 textCase
-        let displayChar = this._applyTextCase(char.char, style.textCase)
-        
-        // 文字
-        ctx.fillStyle = this._getFillStyle(ctx, style.fill, gradientBounds)
-        ctx.font = buildFontString(
-          style.fontSize!,
-          style.fontFamily!,
-          style.fontWeight,
-          style.italic
-        )
-        ctx.fillText(displayChar, finalX, finalY)
-        
-        // 绘制装饰线（textDecoration 或兼容旧的 underline/linethrough）
-        this._drawTextDecoration(ctx, style, finalX, finalY, char.width, line.height)
-        
-        ctx.restore()
-      }
-    }
+    this._drawTextContent(ctx, padding, gradientBounds)
     
     if (shouldClip && hasFixedSize) {
       // 如果是自定义省略符（如 '...'），绘制在右下角
@@ -1111,6 +1077,295 @@ export class RichText extends UI {
         ctx.fillText(this.textOverflow, width - 30, height - 5)
       }
       ctx.restore()
+    }
+  }
+  
+  /**
+   * 绘制外阴影（在 clip 之外调用，阴影不受文本框裁剪）
+   * 与 Leafer 官方一致：整体绘制所有文字到离屏 canvas，
+   * spread 以文本框中心为原点做缩放，阴影是整体效果。
+   */
+  private _drawTextShadows(ctx: CanvasRenderingContext2D, padding: { top: number; right: number; bottom: number; left: number }, _gradientBounds: any): void {
+    // 收集所有阴影 effect（取第一个字符或全局的 shadow 配置）
+    const globalShadows = this._normalizeShadowEffects(this.shadow)
+    if (!globalShadows.length) return
+    
+    // 文本内容区域（用于计算 spread 缩放中心和离屏 canvas 大小）
+    const box = this.__layout.boxBounds
+    const contentW = box.width || 100
+    const contentH = box.height || 50
+    
+    for (const effect of globalShadows) {
+      this._drawOuterShadowWhole(ctx, effect, padding, contentW, contentH)
+    }
+  }
+  
+  /**
+   * 整体绘制一个外阴影效果（大偏移法，与 Leafer 官方等价）
+   * 原理：把文字画到离屏 canvas 的很远位置，通过 shadowOffset 把阴影拉回到正常位置，
+   * 原始文字在 canvas 外面被自然裁掉，不需要 destination-out 擦除。
+   * spread 以文本框中心为原点缩放（与 Leafer 官方 getShadowTransform 一致）
+   */
+  private _drawOuterShadowWhole(
+    ctx: CanvasRenderingContext2D,
+    effect: any,
+    padding: { top: number; right: number; bottom: number; left: number },
+    contentW: number,
+    contentH: number
+  ): void {
+    const blur = typeof effect?.blur === 'number' ? effect.blur : 0
+    const spread = typeof effect?.spread === 'number' ? effect.spread : 0
+    const realOffsetX = typeof effect?.x === 'number' ? effect.x : 0
+    const realOffsetY = typeof effect?.y === 'number' ? effect.y : 0
+    const color = this._colorToString(effect?.color) || this._fillToString(effect?.color) || 'rgba(0, 0, 0, 0.5)'
+    const blendMode = effect?.blendMode
+    
+    // 离屏 canvas 大小：只需要容纳阴影（内容区 + blur + spread + offset 的扩展）
+    const margin = blur * 2 + Math.abs(spread) * 2 + Math.max(Math.abs(realOffsetX), Math.abs(realOffsetY)) + 20
+    const canvasW = Math.ceil(contentW + margin * 2)
+    const canvasH = Math.ceil(contentH + margin * 2)
+    
+    const offCanvas = this._getOrCreateOffscreenCanvas(canvasW, canvasH)
+    const offCtx = offCanvas.getContext('2d')
+    if (!offCtx) return
+    
+    offCtx.clearRect(0, 0, canvasW, canvasH)
+    
+    // 大偏移量：把原始文字画到 canvas 外面（Y 方向向上偏移）
+    const bigOffset = canvasH + contentH + 500
+    
+    // 阴影在离屏 canvas 中的目标位置偏移
+    const ox = margin
+    const oy = margin
+    
+    offCtx.save()
+    offCtx.textBaseline = 'alphabetic'
+    
+    // 设置阴影属性：
+    // 原始文字画在 y - bigOffset 处（canvas 外面）
+    // shadowOffsetY = bigOffset + realOffsetY，把阴影拉回到 y + realOffsetY 处（canvas 内部）
+    offCtx.shadowColor = color
+    offCtx.shadowBlur = blur
+    offCtx.shadowOffsetX = realOffsetX
+    offCtx.shadowOffsetY = bigOffset + realOffsetY
+    
+    // spread 缩放（以文本框中心为原点，与 Leafer 官方一致）
+    if (spread !== 0) {
+      const scaleX = 1 + (spread * 2) / Math.max(contentW, 1)
+      const scaleY = 1 + (spread * 2) / Math.max(contentH, 1)
+      const cx = ox + contentW / 2
+      const cy = oy + contentH / 2 - bigOffset  // 缩放中心也跟着偏移
+      offCtx.translate(cx, cy)
+      offCtx.scale(scaleX, scaleY)
+      offCtx.translate(-cx, -cy)
+    }
+    
+    // 绘制所有文字到 canvas 外面（y - bigOffset）
+    for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
+      const line = this._lineMetrics[lineIdx]
+      
+      const maxFontSize = line.chars.length > 0
+        ? Math.max(...line.chars.map(c => c.style.fontSize!))
+        : this.fontSize
+      const leading = line.height - maxFontSize
+      const topSpacing = leading / 2
+      const ascent = maxFontSize * 0.85
+      const baseline = line.y + topSpacing + ascent
+      
+      for (let charIdx = 0; charIdx < line.chars.length; charIdx++) {
+        const char = line.chars[charIdx]
+        const { x, style } = char
+        const finalX = ox + x + padding.left
+        const finalY = oy + baseline + padding.top - bigOffset  // 画到 canvas 外面
+        
+        const displayChar = this._applyTextCase(char.char, style.textCase)
+        
+        offCtx.font = buildFontString(
+          style.fontSize!,
+          style.fontFamily!,
+          style.fontWeight,
+          style.italic
+        )
+        offCtx.fillStyle = color  // 用阴影色（原始文字不可见，无所谓颜色）
+        offCtx.fillText(displayChar, finalX, finalY)
+      }
+    }
+    
+    offCtx.restore()
+    
+    // 将纯阴影画到主 canvas（原始文字在 canvas 外面已被裁掉，只剩阴影）
+    ctx.save()
+    if (blendMode) ctx.globalCompositeOperation = blendMode as GlobalCompositeOperation
+    ctx.drawImage(offCanvas, 0, 0, canvasW, canvasH, -margin, -margin, canvasW, canvasH)
+    ctx.restore()
+  }
+  
+  private _offscreenCanvas: HTMLCanvasElement | null = null
+  
+  private _getOrCreateOffscreenCanvas(w: number, h: number): HTMLCanvasElement {
+    if (!this._offscreenCanvas) {
+      this._offscreenCanvas = document.createElement('canvas')
+    }
+    if (this._offscreenCanvas.width < w) this._offscreenCanvas.width = w
+    if (this._offscreenCanvas.height < h) this._offscreenCanvas.height = h
+    return this._offscreenCanvas
+  }
+  
+  /**
+   * 绘制文字内容（填充、描边、内阴影、装饰线）
+   * 在 clip 区域内调用
+   */
+  private _drawTextContent(ctx: CanvasRenderingContext2D, padding: { top: number; right: number; bottom: number; left: number }, gradientBounds: any): void {
+    for (let lineIdx = 0; lineIdx < this._lineMetrics.length; lineIdx++) {
+      const line = this._lineMetrics[lineIdx]
+      
+      // ✅ Figma 标准：计算行的统一基线位置（所有字符共享，无论字号大小）
+      const maxFontSize = line.chars.length > 0
+        ? Math.max(...line.chars.map(c => c.style.fontSize!))
+        : this.fontSize
+      
+      const leading = line.height - maxFontSize
+      const topSpacing = leading / 2
+      const ascent = maxFontSize * 0.85
+      const baseline = line.y + topSpacing + ascent
+      
+      // 调试模式：绘制基线和行框
+      if (this.debugMode) {
+        ctx.save()
+        
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)'
+        ctx.lineWidth = 1
+        ctx.strokeRect(padding.left, line.y + padding.top, 500, line.height)
+        
+        ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(padding.left, baseline + padding.top)
+        ctx.lineTo(padding.left + 500, baseline + padding.top)
+        ctx.stroke()
+        
+        ctx.fillStyle = 'rgba(255, 255, 0, 0.2)'
+        ctx.fillRect(padding.left, line.y + padding.top, 10, topSpacing)
+        
+        ctx.fillStyle = 'rgba(0, 255, 255, 0.2)'
+        ctx.fillRect(padding.left, line.y + topSpacing + padding.top, 10, ascent)
+        
+        ctx.restore()
+      }
+      
+      const lineTop = line.y + padding.top
+      
+      for (let charIdx = 0; charIdx < line.chars.length; charIdx++) {
+        const char = line.chars[charIdx]
+        const { x, style } = char
+        
+        const finalX = x + padding.left
+        const finalY = baseline + padding.top
+        
+        ctx.save()
+        
+        // 背景色
+        if (style.textBackgroundColor) {
+          const charAscent = style.fontSize! * 0.85
+          const charDescent = style.fontSize! * 0.15
+          const bgY = baseline - charAscent
+          const bgHeight = charAscent + charDescent
+          
+          ctx.fillStyle = style.textBackgroundColor
+          ctx.fillRect(finalX, bgY + padding.top, char.width, bgHeight)
+        }
+        
+        let displayChar = this._applyTextCase(char.char, style.textCase)
+        
+        const stroke = (style as any).stroke
+        const strokeWidth = (style as any).strokeWidth ?? 0
+        const strokeAlign = (style as any).strokeAlign ?? this.strokeAlign ?? 'outside'
+        const strokeCap = (style as any).strokeCap as 'none' | 'round' | 'square' | undefined
+        const strokeJoin = (style as any).strokeJoin as 'miter' | 'bevel' | 'round' | undefined
+        const dashPattern = (style as any).dashPattern as number[] | undefined
+        const dashOffset = (style as any).dashOffset as number | undefined
+        const fillStyle = this._getFillStyle(ctx, style.fill, gradientBounds)
+        
+        ctx.font = buildFontString(
+          style.fontSize!,
+          style.fontFamily!,
+          style.fontWeight,
+          style.italic
+        )
+        
+        if (stroke && strokeWidth > 0) {
+          if (strokeAlign === 'inside') {
+            ctx.fillStyle = fillStyle
+            ctx.fillText(displayChar, finalX, finalY)
+            
+            ctx.save()
+            ctx.globalCompositeOperation = 'source-atop'
+            ctx.strokeStyle = this._getFillStyle(ctx, stroke, gradientBounds)
+            ctx.lineWidth = strokeWidth
+            if (strokeCap) ctx.lineCap = strokeCap === 'none' ? 'butt' : strokeCap
+            if (strokeJoin) ctx.lineJoin = strokeJoin
+            if (dashPattern && ctx.setLineDash) ctx.setLineDash(dashPattern)
+            if (typeof dashOffset === 'number') ctx.lineDashOffset = dashOffset
+            ctx.strokeText(displayChar, finalX, finalY)
+            if (dashPattern && ctx.setLineDash) ctx.setLineDash([])
+            ctx.restore()
+          } else if (strokeAlign === 'outside') {
+            ctx.save()
+            ctx.strokeStyle = this._getFillStyle(ctx, stroke, gradientBounds)
+            ctx.lineWidth = strokeWidth
+            if (strokeCap) ctx.lineCap = strokeCap === 'none' ? 'butt' : strokeCap
+            if (strokeJoin) ctx.lineJoin = strokeJoin
+            if (dashPattern && ctx.setLineDash) ctx.setLineDash(dashPattern)
+            if (typeof dashOffset === 'number') ctx.lineDashOffset = dashOffset
+            ctx.strokeText(displayChar, finalX, finalY)
+            if (dashPattern && ctx.setLineDash) ctx.setLineDash([])
+            ctx.restore()
+            
+            ctx.fillStyle = fillStyle
+            ctx.fillText(displayChar, finalX, finalY)
+          } else {
+            ctx.fillStyle = fillStyle
+            ctx.fillText(displayChar, finalX, finalY)
+            
+            ctx.save()
+            ctx.strokeStyle = this._getFillStyle(ctx, stroke, gradientBounds)
+            ctx.lineWidth = strokeWidth
+            if (strokeCap) ctx.lineCap = strokeCap === 'none' ? 'butt' : strokeCap
+            if (strokeJoin) ctx.lineJoin = strokeJoin
+            if (dashPattern && ctx.setLineDash) ctx.setLineDash(dashPattern)
+            if (typeof dashOffset === 'number') ctx.lineDashOffset = dashOffset
+            ctx.strokeText(displayChar, finalX, finalY)
+            if (dashPattern && ctx.setLineDash) ctx.setLineDash([])
+            ctx.restore()
+          }
+        } else {
+          ctx.fillStyle = fillStyle
+          ctx.fillText(displayChar, finalX, finalY)
+        }
+        
+        // 内阴影（在文字内部，随文字裁剪）
+        const innerShadows = this._normalizeShadowEffects((style as any).innerShadow ?? this.innerShadow)
+        if (innerShadows.length) {
+          for (const effect of innerShadows) {
+            this._drawInnerShadowForChar(
+              ctx,
+              effect,
+              displayChar,
+              finalX,
+              finalY,
+              lineTop,
+              line.height,
+              char.width,
+              ctx.font
+            )
+          }
+        }
+        
+        // 绘制装饰线（textDecoration 或兼容旧的 underline/linethrough）
+        this._drawTextDecoration(ctx, style, finalX, finalY, char.width, line.height)
+        
+        ctx.restore()
+      }
     }
   }
   
@@ -1250,7 +1505,7 @@ export class RichText extends UI {
   
   private _getFillStyle(
     ctx: CanvasRenderingContext2D,
-    fill: IFill | undefined,
+    fill: IFill | IStroke | undefined,
     bounds: { x: number; y: number; width: number; height: number }
   ): string | CanvasGradient {
     if (!fill) return '#000'
@@ -1377,6 +1632,140 @@ export class RichText extends UI {
       default:
         return { x: xCenter, y: yCenter }
     }
+  }
+  
+  private _getStrokeExpand(): number {
+    const width = this.strokeWidth || 0
+    if (!width) return 0
+    const align = this.strokeAlign || 'outside'
+    if (align === 'inside') return 0
+    if (align === 'center') return width / 2
+    return width
+  }
+  
+  /**
+   * 计算内容级阴影扩展（考虑 spread 缩放导致的额外扩展）
+   */
+  private _getContentShadowExpand(): number {
+    const box = this.__layout.boxBounds
+    const contentW = box.width || 100
+    const contentH = box.height || 50
+    const contentSize = Math.max(contentW, contentH)
+    
+    let maxExpand = 0
+    const allShadows = this._normalizeShadowEffects(this.shadow)
+    
+    // 也收集字符级 shadow
+    if (this._styles.size) {
+      for (const lineStyles of this._styles.values()) {
+        for (const style of lineStyles.values()) {
+          const s = (style as any).shadow
+          if (s) {
+            const effects = this._normalizeShadowEffects(s)
+            for (const e of effects) allShadows.push(e)
+          }
+        }
+      }
+    }
+    
+    for (const effect of allShadows) {
+      const blur = typeof effect?.blur === 'number' ? effect.blur : 0
+      const spread = Math.abs(typeof effect?.spread === 'number' ? effect.spread : 0)
+      const offsetX = typeof effect?.x === 'number' ? effect.x : 0
+      const offsetY = typeof effect?.y === 'number' ? effect.y : 0
+      
+      // spread 通过 scale 实现：scaleRatio = 1 + spread*2/contentSize
+      // 实际超出距离 = contentSize * (scaleRatio - 1) / 2 = spread
+      // 但缩放后 blur 扩散范围也变大：blurExpand * scaleRatio
+      const scaleRatio = spread > 0 ? (1 + (spread * 2) / Math.max(contentSize, 1)) : 1
+      const blurExpand = blur * 1.5 * scaleRatio
+      
+      const top    = spread + blurExpand + Math.abs(offsetY)
+      const right  = spread + blurExpand + Math.abs(offsetX)
+      const bottom = spread + blurExpand + Math.abs(offsetY)
+      const left   = spread + blurExpand + Math.abs(offsetX)
+      const expand = Math.max(top, right, bottom, left)
+      if (expand > maxExpand) maxExpand = expand
+    }
+    
+    return maxExpand
+  }
+  
+  private _normalizeShadowEffects(shadow: any): any[] {
+    if (!shadow) return []
+    const effects = Array.isArray(shadow) ? shadow : [shadow]
+    return effects.filter(effect => effect && effect.visible !== false)
+  }
+  
+  // _applyShadowToContext 已移入离屏 canvas 逻辑中（_drawOuterShadowForChar / _drawInnerShadowForChar）
+  
+  private _getShadowContext(width: number, height: number): CanvasRenderingContext2D | null {
+    if (!this._shadowCanvas) {
+      this._shadowCanvas = document.createElement('canvas')
+      this._shadowCtx = this._shadowCanvas.getContext('2d')
+    }
+    if (!this._shadowCanvas || !this._shadowCtx) return null
+    if (this._shadowCanvas.width !== width) this._shadowCanvas.width = width
+    if (this._shadowCanvas.height !== height) this._shadowCanvas.height = height
+    return this._shadowCtx
+  }
+  
+  private _drawInnerShadowForChar(
+    ctx: CanvasRenderingContext2D,
+    effect: any,
+    displayChar: string,
+    finalX: number,
+    finalY: number,
+    lineTop: number,
+    lineHeight: number,
+    charWidth: number,
+    font: string
+  ): void {
+    const blur = typeof effect?.blur === 'number' ? effect.blur : 0
+    const spread = typeof effect?.spread === 'number' ? effect.spread : 0
+    const offsetX = typeof effect?.x === 'number' ? effect.x : 0
+    const offsetY = typeof effect?.y === 'number' ? effect.y : 0
+    const pad = Math.max(2, blur + Math.max(0, spread) + Math.max(Math.abs(offsetX), Math.abs(offsetY)) + 2)
+    const width = Math.ceil(charWidth + pad * 2)
+    const height = Math.ceil(lineHeight + pad * 2)
+    const shadowCtx = this._getShadowContext(width, height)
+    if (!shadowCtx) return
+    
+    shadowCtx.clearRect(0, 0, width, height)
+    shadowCtx.save()
+    shadowCtx.font = font
+    shadowCtx.textBaseline = 'alphabetic'
+    
+    const baselineOffset = finalY - lineTop
+    const baseX = pad
+    const baseY = pad + baselineOffset
+    
+    // 1) 先绘制文字遮罩（spread > 0 时缩小遮罩，让内阴影扩展更多）
+    shadowCtx.fillStyle = '#ffffff'
+    if (spread > 0) {
+      // 内阴影 spread：缩小遮罩文字，阴影向内扩展
+      shadowCtx.strokeStyle = '#ffffff'
+      shadowCtx.lineWidth = spread * 2
+      shadowCtx.lineJoin = 'round'
+      shadowCtx.strokeText(displayChar, baseX, baseY)
+    }
+    shadowCtx.fillText(displayChar, baseX, baseY)
+    
+    // 2) 通过 source-in 将阴影限制在文字内部
+    shadowCtx.globalCompositeOperation = 'source-in'
+    shadowCtx.shadowColor = this._colorToString(effect?.color) || this._fillToString(effect?.color) || 'rgba(0, 0, 0, 0.5)'
+    shadowCtx.shadowBlur = blur
+    shadowCtx.shadowOffsetX = offsetX
+    shadowCtx.shadowOffsetY = offsetY
+    shadowCtx.fillStyle = shadowCtx.shadowColor as string
+    shadowCtx.fillRect(0, 0, width, height)
+    
+    shadowCtx.restore()
+    
+    ctx.save()
+    if (effect?.blendMode) ctx.globalCompositeOperation = effect.blendMode
+    ctx.drawImage(this._shadowCanvas as HTMLCanvasElement, finalX - baseX, finalY - baseY)
+    ctx.restore()
   }
   
   /**
@@ -2418,6 +2807,16 @@ export class RichText extends UI {
     if (styleObj.fontFamily !== undefined) this.fontFamily = styleObj.fontFamily
     if (styleObj.fontWeight !== undefined) this.fontWeight = styleObj.fontWeight
     if (styleObj.fill !== undefined) this.fill = styleObj.fill
+    if ((styleObj as any).stroke !== undefined) (this as any).stroke = (styleObj as any).stroke
+    if ((styleObj as any).strokeWidth !== undefined) (this as any).strokeWidth = (styleObj as any).strokeWidth
+    if ((styleObj as any).strokeAlign !== undefined) (this as any).strokeAlign = (styleObj as any).strokeAlign
+    if ((styleObj as any).strokeWidthFixed !== undefined) (this as any).strokeWidthFixed = (styleObj as any).strokeWidthFixed
+    if ((styleObj as any).strokeCap !== undefined) (this as any).strokeCap = (styleObj as any).strokeCap
+    if ((styleObj as any).strokeJoin !== undefined) (this as any).strokeJoin = (styleObj as any).strokeJoin
+    if ((styleObj as any).dashPattern !== undefined) (this as any).dashPattern = (styleObj as any).dashPattern
+    if ((styleObj as any).dashOffset !== undefined) (this as any).dashOffset = (styleObj as any).dashOffset
+    if ((styleObj as any).shadow !== undefined) (this as any).shadow = (styleObj as any).shadow
+    if ((styleObj as any).innerShadow !== undefined) (this as any).innerShadow = (styleObj as any).innerShadow
     if (styleObj.italic !== undefined) this.italic = styleObj.italic
     if (styleObj.textCase !== undefined) this.textCase = styleObj.textCase
     if (styleObj.textDecoration !== undefined) this.textDecoration = styleObj.textDecoration

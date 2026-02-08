@@ -14,7 +14,7 @@ Leafer 富文本插件：支持按字符设置样式的可编辑文本元素，�
 ### 完整的 Leafer 文本样式支持
 
 #### 字符级样式（可对选中文字单独设置）
-- **基础样式**：`fontSize`, `fontFamily`, `fontWeight`, `fill`（纯色/渐变）, `italic`
+- **基础样式**：`fontSize`, `fontFamily`, `fontWeight`, `fill`（纯色/渐变）, `stroke`（描边）, `strokeWidth`, `italic`
 - **文本格式**：`textCase`（大小写转换）, `textDecoration`（下划线/删除线）
 - **字间距**：`letterSpacing`（支持数字或百分比）
 - **背景**：`textBackgroundColor`
@@ -135,6 +135,19 @@ const linearGradient = {
 
 richtext.setSelectionStyles({ fill: linearGradient })
 ```
+### 描边示例
+
+```ts
+richtext.setSelectionStyles({
+  stroke: { type: 'solid', color: '#ff0000' },
+  strokeWidth: 2,
+  strokeAlign: 'outside',
+  strokeCap: 'round',
+  strokeJoin: 'round',
+  dashPattern: [6, 4],
+  dashOffset: 0
+})
+```
 4. **设置整段样式**：选中元素（不进入编辑），调用 `richtext.setFullTextStyles({ fontWeight: 'bold' })`，只修改指定属性
 5. **退出编辑**：ESC 或点击空白（或 `richtext.exitEditing()`）
 
@@ -246,6 +259,13 @@ install()  // 仅当未通过主入口 "leafer-x-richText" 引入时需调用
 | `fontFamily` | `string` | `'Arial, sans-serif'` | 字体 |
 | `fontWeight` | `IFontWeight` | `'normal'` | 字重（normal/bold/100-900） |
 | `fill` | `IFill` | `'#000000'` | 填充色（纯色/渐变/图像） |
+| `stroke` | `IStroke` | `undefined` | 描边（纯色/渐变/图案/多描边） |
+| `strokeWidth` | `number` | `0` | 描边宽度 |
+| `strokeAlign` | `'inside' \| 'center' \| 'outside'` | `'outside'` | 描边对齐方式 |
+| `strokeCap` | `'none' \| 'round' \| 'square'` | `'none'` | 描边端点形状 |
+| `strokeJoin` | `'miter' \| 'bevel' \| 'round'` | `'miter'` | 描边拐角处理 |
+| `dashPattern` | `number[]` | `undefined` | 虚线描边间隔 |
+| `dashOffset` | `number` | `0` | 虚线起点偏移 |
 | `italic` | `boolean` | `false` | 是否斜体 |
 | `textCase` | `ITextCase` | `'none'` | 大小写（none/upper/lower/title） |
 | `textDecoration` | `ITextDecoration` | `'none'` | 装饰线（none/under/delete/under-delete） |
@@ -305,6 +325,13 @@ interface IStyleRange {
   fontFamily?: string
   fontWeight?: IFontWeight
   fill?: IFill
+  stroke?: IStroke
+  strokeWidth?: number
+  strokeAlign?: 'inside' | 'center' | 'outside'
+  strokeCap?: 'none' | 'round' | 'square'
+  strokeJoin?: 'miter' | 'bevel' | 'round'
+  dashPattern?: number[]
+  dashOffset?: number
   italic?: boolean
   
   // 文本格式
@@ -327,6 +354,13 @@ interface IStyleRange {
 interface ICharStyle {
   // 基础样式
   fill?: IFill
+  stroke?: IStroke
+  strokeWidth?: number
+  strokeAlign?: 'inside' | 'center' | 'outside'
+  strokeCap?: 'none' | 'round' | 'square'
+  strokeJoin?: 'miter' | 'bevel' | 'round'
+  dashPattern?: number[]
+  dashOffset?: number
   fontSize?: number
   fontFamily?: string
   fontWeight?: IFontWeight

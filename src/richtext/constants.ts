@@ -6,6 +6,16 @@ export const RICHTEXT_DEFAULTS = {
   fontFamily: 'Arial, sans-serif',
   fontWeight: 'normal' as const,
   fill: '#000000',
+  stroke: undefined,
+  strokeWidth: 0,
+  strokeAlign: 'outside' as const,
+  strokeWidthFixed: false as const,
+  strokeCap: 'none' as const,
+  strokeJoin: 'miter' as const,
+  dashPattern: undefined,
+  dashOffset: 0,
+  shadow: undefined,
+  innerShadow: undefined,
   italic: false,
   
   // 文本格式
