@@ -1406,8 +1406,8 @@ export class RichText extends UI {
     let decorationColor: string = this._fillToString(style.fill)
     let decorationOffset = 0
     
-    // 兼容旧属性
-    if (!decoration && (style.underline || style.linethrough)) {
+    // 兼容旧属性（decoration 为空或 'none' 时，回退到 underline/linethrough）
+    if ((!decoration || decoration === 'none') && (style.underline || style.linethrough)) {
       if (style.underline && style.linethrough) {
         decoration = 'under-delete'
       } else if (style.underline) {
