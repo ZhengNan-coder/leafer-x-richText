@@ -19,6 +19,13 @@ Leafer 富文本插件：支持按字符设置样式的可编辑文本元素，�
 - **字间距**：`letterSpacing`（支持数字或百分比）
 - **背景**：`textBackgroundColor`
 
+#### 阴影效果（对齐 Leafer 官方 Text 实现）
+- **外阴影**：`shadow`（支持 color/blur/x/y/spread/blendMode，可数组多阴影）
+- **内阴影**：`innerShadow`（同上，阴影限制在文字形状内部）
+- 阴影不影响文本框尺寸（仅扩展渲染边界）
+- 阴影不受 `textOverflow` 裁剪影响（超出文本框仍完整显示）
+- `spread` 以文本框中心为原点整体缩放（与 Leafer 官方 `getShadowTransform` 一致）
+
 #### 段落属性（作用于整个元素）
 - **行高**：`lineHeight`（支持数字或百分比，默认 1.5）
 - **对齐**：`textAlign`（左/中/右/两端对齐）, `verticalAlign`（垂直对齐）
@@ -33,6 +40,11 @@ Leafer 富文本插件：支持按字符设置样式的可编辑文本元素，�
 - ✅ **自动换行**：固定宽度下按单词边界或强制断词换行
 - ✅ **自动宽高**：默认宽高随内容自动调整，支持切换为固定尺寸
 - ✅ **样式保留**：修改整段样式时只更新指定属性，保留其他字符级样式差异
+- ✅ **文本描边**：支持内部/外部/居中描边对齐、虚线描边、端点/拐角样式
+- ✅ **外阴影**：整体阴影渲染（非逐字），支持 spread 缩放、不受 textOverflow 裁剪
+- ✅ **内阴影**：阴影限制在文字形状内部，支持 spread 向内扩展
+- ✅ **多阴影叠加**：shadow/innerShadow 支持数组形式设置多个阴影效果
+- ✅ **段落级两端对齐**：`justify` 模式下每个段落（`\n` 分隔）的最后一行不强制对齐
 
 ## 安装
 
@@ -147,6 +159,53 @@ richtext.setSelectionStyles({
   dashPattern: [6, 4],
   dashOffset: 0
 })
+```
+
+### 阴影示例
+
+```ts
+// 外阴影（整体效果，不受 textOverflow 裁剪）
+const shadowText = new RichText({
+  text: '带阴影的文本',
+  fontSize: 32,
+  fill: '#333',
+  shadow: {
+    color: 'rgba(0, 0, 0, 0.5)',
+    blur: 8,
+    x: 0,
+    y: 4,
+    spread: 0           // 扩散：以文本框中心整体缩放阴影
+  }
+})
+
+// 内阴影
+const innerShadowText = new RichText({
+  text: '内阴影文本',
+  fontSize: 48,
+  fill: '#fff',
+  innerShadow: {
+    color: 'rgba(0, 0, 0, 0.6)',
+    blur: 6,
+    x: 2,
+    y: 2,
+    spread: 0
+  }
+})
+
+// 多阴影（数组形式）
+const multiShadow = new RichText({
+  text: '多重阴影',
+  fontSize: 36,
+  shadow: [
+    { color: 'rgba(255, 0, 0, 0.5)', blur: 10, x: -4, y: -4 },
+    { color: 'rgba(0, 0, 255, 0.5)', blur: 10, x: 4, y: 4 }
+  ]
+})
+
+// 通过面板/API 设置阴影
+richtext.setFullTextStyles({
+  shadow: { color: '#000', blur: 12, x: 0, y: 6, spread: 4 }
+} as any)
 ```
 4. **设置整段样式**：选中元素（不进入编辑），调用 `richtext.setFullTextStyles({ fontWeight: 'bold' })`，只修改指定属性
 5. **退出编辑**：ESC 或点击空白（或 `richtext.exitEditing()`）
@@ -266,6 +325,8 @@ install()  // 仅当未通过主入口 "leafer-x-richText" 引入时需调用
 | `strokeJoin` | `'miter' \| 'bevel' \| 'round'` | `'miter'` | 描边拐角处理 |
 | `dashPattern` | `number[]` | `undefined` | 虚线描边间隔 |
 | `dashOffset` | `number` | `0` | 虚线起点偏移 |
+| `shadow` | `object \| object[]` | `undefined` | 外阴影（支持 color/blur/x/y/spread/blendMode） |
+| `innerShadow` | `object \| object[]` | `undefined` | 内阴影（同上，限制在文字形状内部） |
 | `italic` | `boolean` | `false` | 是否斜体 |
 | `textCase` | `ITextCase` | `'none'` | 大小写（none/upper/lower/title） |
 | `textDecoration` | `ITextDecoration` | `'none'` | 装饰线（none/under/delete/under-delete） |
@@ -340,6 +401,10 @@ interface IStyleRange {
   letterSpacing?: number | IUnitData
   textBackgroundColor?: string
   
+  // 阴影效果
+  shadow?: IShadowEffect | IShadowEffect[]
+  innerShadow?: IShadowEffect | IShadowEffect[]
+
   // 兼容旧属性
   underline?: boolean
   linethrough?: boolean
@@ -371,6 +436,10 @@ interface ICharStyle {
   textDecoration?: ITextDecoration  // 装饰线：none/under/delete/under-delete
   letterSpacing?: number | IUnitData  // 字间距
   textBackgroundColor?: string
+
+  // 阴影效果
+  shadow?: IShadowEffect | IShadowEffect[]
+  innerShadow?: IShadowEffect | IShadowEffect[]
   
   // 兼容旧属性（自动转换为 textDecoration）
   underline?: boolean
@@ -408,6 +477,16 @@ type ITextWrap = 'normal' | 'none' | 'break'
 
 // 溢出处理
 type IOverflow = 'show' | 'hide' | string  // 字符串为自定义省略符
+
+// 阴影效果（与 Leafer ILeafShadowEffect 对齐）
+interface IShadowEffect {
+  color?: string          // 阴影颜色，支持 rgba/hex
+  blur?: number           // 模糊半径，默认 0
+  x?: number              // X 方向偏移，默认 0
+  y?: number              // Y 方向偏移，默认 0
+  spread?: number         // 扩散值，以文本框中心整体缩放阴影（>0 放大，<0 缩小）
+  blendMode?: string      // 混合模式，如 'normal', 'multiply' 等
+}
 ```
 
 ---
